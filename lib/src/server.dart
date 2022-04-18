@@ -31,4 +31,9 @@ class ChungusServer {
       message: String.fromCharCodes(datagram.data),
     );
   }
+
+  void close() {
+    _socket?.close();
+    _socket = null;
+  }
 }

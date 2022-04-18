@@ -3,12 +3,19 @@ import 'package:chungus_protocol/chungus_protocol.dart';
 /// Server example for ChungusProtocol.
 /// Refer to `client.dart` for an example client.
 Future<void> main() async {
-  var server = new ChungusServer(port: 1234);
+  var server = new ChungusServer(port: 5895);
   await server.start();
 
   while (true) {
-    var message = await server.receive();
-    print('Client: ${message.message}');
-    server.send(message.address, message.port, message.message);
+    var incomingPacket = await server.receive();
+    if (incomingPacket.message == "exit") {
+      server.close();
+      break;
+    }
+
+    print('Client: ${incomingPacket.message}');
+    server.send(incomingPacket.address, incomingPacket.port, incomingPacket.message);
   }
+
+  print("Shutting down!");
 }
