@@ -35,11 +35,40 @@ class PacketBodyInputSource {
   /// The packet the input source is reading from.
   final Packet packet;
 
-  int _position = 0;
+  int __position = 0;
 
   /// The current position into the byte array that the next value(s) should be
   /// read from.
-  int get position => _position;
+  int get position => __position;
+
+  /// Mark the current position as read and increment the position counter
+  /// by one if [delta] is not specified.
+  /// Otherwise, mark [delta] positions as read and increment the position
+  /// counter by [delta] to reflect as such.
+  int _readPos([int? delta]) {
+    // Assert that doing this read won't cause the position pointer to exceed
+    // the bounds of the buffer.
+    if (__position + (delta ?? 1) > bytes.lengthInBytes - 1) {
+      throw RangeError.index(
+        __position + (delta ?? 1),
+        bytes,
+        'position',
+        "Attempted to read a value outside the bounds of the packet buffer.",
+        bytes.lengthInBytes,
+      );
+    }
+
+    // If delta is not specified, assuming only the current position is being
+    // read; return the current position and then increment the position
+    // counter by one to reflect as such.
+    if (delta == null) return __position++;
+
+    // If the delta is specified, instead mark [delta] positions as read and
+    // increment the position counter by [delta] to reflect as such.
+    int retVal = __position;
+    __position += delta;
+    return retVal;
+  }
 
   /// Returns the raw bytes from the packet body.
   Uint8List get bytes {
@@ -68,7 +97,7 @@ class PacketBodyInputSource {
   /// throwing an [AssertionError] if it does not.
   _PacketBodyInputStreamField? _readField(DataType expectedType) {
     // Read the data type.
-    final type = DataTypeValue.of(bytes[_position++]);
+    final type = DataTypeValue.of(bytes[_readPos()]);
     if (type == DataType.none) {
       return null;
     } else if (type != expectedType) {
@@ -78,8 +107,8 @@ class PacketBodyInputSource {
     // If the type has a size, read that many bytes.
     Uint8List? buffer;
     if (type.hasSize) {
-      buffer = bytes.sublist(_position, _position + type.size);
-      _position += type.size;
+      buffer = bytes.sublist(__position, __position + type.size);
+      _readPos(type.size);
     }
 
     return _PacketBodyInputStreamField(buffer: buffer, type: type);
@@ -108,7 +137,7 @@ class PacketBodyInputSource {
     T Function() readElementFunction,
   ) {
     // Read the data type.
-    final type = DataTypeValue.of(bytes[_position++]);
+    final type = DataTypeValue.of(bytes[_readPos()]);
     if (type == DataType.none) {
       return null;
     } else if (type != DataType.array) {
@@ -280,7 +309,7 @@ class PacketBodyInputSource {
     if (field == null) return null;
 
     // Now read the VarInt byte-by-byte.
-    return VarLengthNumbers.readVarInt(() => bytes[_position++]);
+    return VarLengthNumbers.readVarInt(() => bytes[_readPos()]);
   }
 
   /// Reads an array of VarInt fields with [readVarInt].
@@ -295,7 +324,7 @@ class PacketBodyInputSource {
     if (field == null) return null;
 
     // Now read the VarLong byte-by-byte.
-    return VarLengthNumbers.readVarLong(() => bytes[_position++]);
+    return VarLengthNumbers.readVarLong(() => bytes[_readPos()]);
   }
 
   /// Reads an array of VarLong fields with [readVarLong].
@@ -315,8 +344,8 @@ class PacketBodyInputSource {
     if (stringLength < 1) return null;
 
     // Read that many bytes and return the value.
-    final value = utf8.decode(bytes.sublist(_position, _position + stringLength));
-    _position += stringLength;
+    final value = utf8.decode(bytes.sublist(__position, __position + stringLength));
+    _readPos(stringLength);
     return value;
   }
 
@@ -336,8 +365,8 @@ class PacketBodyInputSource {
     if (bytesLength < 1) return null;
 
     // Read that many bytes and return the value.
-    final value = bytes.sublist(_position, _position + bytesLength);
-    _position += bytesLength;
+    final value = bytes.sublist(__position, __position + bytesLength);
+    _readPos(bytesLength);
     return value;
   }
 
