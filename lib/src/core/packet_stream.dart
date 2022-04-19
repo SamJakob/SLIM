@@ -85,6 +85,48 @@ class PacketBodyInputSource {
     return _PacketBodyInputStreamField(buffer: buffer, type: type);
   }
 
+  /// Reads the next field as a typed array from the packet.
+  /// Checks that the field data type byte matches [DataType.array], throwing
+  /// an [AssertionError] if it does not.
+  /// Then, reads all the elements with the specified [readElementFunction].
+  ///
+  /// The protocol specification specifies that all array elements have fixed
+  /// non-nullable type. But to parse a non-conformant array with null bytes,
+  /// you can manually use [readArray].
+  ///
+  /// To read an array without null-checking it you can do so as follows:
+  /// ```dart
+  /// // Return type: List<bool?>?
+  /// readArray(DataType.boolean, () => readBoolean());
+  /// ```
+  /// Simply specify the data type and the corresponding element read function
+  /// for that data type (requiring specification of the element read function
+  /// gives greater flexibility and ensures Dart's type system can correctly
+  /// resolve all of the types at compile time).
+  List<T>? readArray<T>(
+    DataType elementType,
+    T Function() readElementFunction,
+  ) {
+    // Read the data type.
+    final type = DataTypeValue.of(bytes[_position++]);
+    if (type == DataType.none) {
+      return null;
+    } else if (type != DataType.array) {
+      throw AssertionError("Type mismatch: expected array, got ${type.name}");
+    }
+
+    // Read the subsequent VarInt as the number of elements in the array.
+    int arraySize = readVarInt()!;
+    if (arraySize < 1) return null;
+
+    // Finally, read all the fields with the specified function.
+    List<dynamic> result = [];
+    for (int i = 0; i < arraySize; i++) {
+      result.add(readElementFunction()!);
+    }
+    return result.cast();
+  }
+
   /// Read the next field as a boolean field.
   /// If the field is of type [DataType.none] then null is returned instead.
   /// Throws an [InvalidValueError] if the field is not a boolean field.
@@ -97,6 +139,11 @@ class PacketBodyInputSource {
     if (value == 1) return true;
     throw InvalidValueError(DataType.boolean, field);
   }
+
+  /// Reads an array of boolean fields with [readBoolean].
+  /// This null-checks all the values as a default. See the documentation of
+  /// [readArray] for details.
+  List<bool>? readBooleanArray() => readArray(DataType.boolean, () => readBoolean()!);
 
   _PacketBodyInputStreamField? _readFixIntField(DataType type, {bool signed = false}) {
     // If we're reading a signed value and the specified type is unsigned,
@@ -119,6 +166,21 @@ class PacketBodyInputSource {
     }
   }
 
+  /// Reads an array of byte fields with [readByte].
+  /// NOTE: the name `readByteFieldArray` is selected to avoid confusion with
+  /// [readBytes] which reads a byte array.
+  ///
+  /// In this implementation of the protocol, this is functionally the same
+  /// (although [readByteFieldArray] is implemented with [readArray] to ensure
+  /// the fields are handled correctly) - however this is not always a
+  /// guarantee. Implementations may choose to skip reading fields of certain
+  /// arrays for performance reasons and this one may be updated to do so in
+  /// future, so the correct data type should be selected.
+  ///
+  /// This null-checks all the values as a default. See the documentation of
+  /// [readArray] for details.
+  List<int>? readByteFieldArray({bool signed = false}) => readArray(DataType.byte, () => readByte(signed: signed)!);
+
   /// Read a short (16-bit integer) field.
   int? readShort({bool signed = false}) {
     // Read the field data type and field byte(s).
@@ -131,6 +193,11 @@ class PacketBodyInputSource {
       return field.data!.getUint16(0);
     }
   }
+
+  /// Reads an array of short fields with [readShort].
+  /// This null-checks all the values as a default. See the documentation of
+  /// [readArray] for details.
+  List<int>? readShortArray({bool signed = false}) => readArray(DataType.short, () => readShort(signed: signed)!);
 
   /// Read an integer (32-bit integer) field.
   int? readInteger({bool signed = false}) {
@@ -145,6 +212,21 @@ class PacketBodyInputSource {
     }
   }
 
+  /// Reads an array of integer fields with [readInteger].
+  /// This null-checks all the values as a default. See the documentation of
+  /// [readArray] for details.
+  List<int>? readIntegerArray({bool signed = false}) => readArray(DataType.integer, () => readInteger(signed: signed)!);
+
+  /// Reads a 2D array of integer fields with [readArray] and [readInteger].
+  /// The integer values are null-checked but the arrays are not. See the
+  /// documentation of [readArray] for details.
+  /// This primarily serves as an example of how multi-dimensional arrays might
+  /// be handled with the protocol.
+  List<List<int>?>? readInteger2DArray() => readArray(
+        DataType.array,
+        () => readArray(DataType.integer, () => readInteger()!),
+      );
+
   /// Read a long (64-bit integer) field.
   int? readLong({bool signed = false}) {
     // Read the field data type and field byte(s).
@@ -158,6 +240,11 @@ class PacketBodyInputSource {
     }
   }
 
+  /// Reads an array of long fields with [readLong].
+  /// This null-checks all the values as a default. See the documentation of
+  /// [readArray] for details.
+  List<int>? readLongArray({bool signed = false}) => readArray(DataType.long, () => readLong(signed: signed)!);
+
   /// Read a single-precision IEEE 754 floating point number.
   double? readFloat() {
     // Read the field.
@@ -167,14 +254,24 @@ class PacketBodyInputSource {
     return field.data!.getFloat32(0);
   }
 
+  /// Reads an array of float fields with [readFloat].
+  /// This null-checks all the values as a default. See the documentation of
+  /// [readArray] for details.
+  List<double>? readFloatArray() => readArray(DataType.float, () => readFloat()!);
+
   /// Read a double-precision IEEE 754 floating point number.
   double? readDouble() {
     // Read the field.
-    final field = _readField(DataType.float);
+    final field = _readField(DataType.double);
     if (field == null) return null;
     // Decode the float and return it.
     return field.data!.getFloat64(0);
   }
+
+  /// Reads an array of double fields with [readDouble].
+  /// This null-checks all the values as a default. See the documentation of
+  /// [readArray] for details.
+  List<double>? readDoubleArray() => readArray(DataType.double, () => readDouble()!);
 
   /// Read a variable length signed integer (up to a 32-bit integer).
   int? readVarInt() {
@@ -186,6 +283,11 @@ class PacketBodyInputSource {
     return VarLengthNumbers.readVarInt(() => bytes[_position++]);
   }
 
+  /// Reads an array of VarInt fields with [readVarInt].
+  /// This null-checks all the values as a default. See the documentation of
+  /// [readArray] for details.
+  List<int>? readVarIntArray() => readArray(DataType.varInt, () => readVarInt()!);
+
   /// Read a variable length long signed integer (up to a 64-bit integer).
   int? readVarLong() {
     // Read the field.
@@ -196,6 +298,11 @@ class PacketBodyInputSource {
     return VarLengthNumbers.readVarLong(() => bytes[_position++]);
   }
 
+  /// Reads an array of VarLong fields with [readVarLong].
+  /// This null-checks all the values as a default. See the documentation of
+  /// [readArray] for details.
+  List<int>? readVarLongArray() => readArray(DataType.varLong, () => readVarLong()!);
+
   /// Read a UTF-8 encoded string based on its length as prefixed with a
   /// VarInt.
   String? readString() {
@@ -205,12 +312,18 @@ class PacketBodyInputSource {
 
     // Now read the length as a VarInt.
     int stringLength = readVarInt()!;
+    if (stringLength < 1) return null;
 
     // Read that many bytes and return the value.
     final value = utf8.decode(bytes.sublist(_position, _position + stringLength));
     _position += stringLength;
     return value;
   }
+
+  /// Reads an array of String fields with [readString].
+  /// This does NOT null check the values because, per the protocol, Strings of
+  /// length 0 are to be interpreted and represented as null fields.
+  List<String?>? readStringArray() => readArray(DataType.string, () => readString());
 
   /// Read a sequence of bytes based on its length as prefixed with a VarInt.
   Uint8List? readBytes() {
@@ -220,6 +333,7 @@ class PacketBodyInputSource {
 
     // Now read the length as a VarInt.
     int bytesLength = readVarInt()!;
+    if (bytesLength < 1) return null;
 
     // Read that many bytes and return the value.
     final value = bytes.sublist(_position, _position + bytesLength);
@@ -227,43 +341,10 @@ class PacketBodyInputSource {
     return value;
   }
 
-  /// A 'sugar' to create an [ArrayReader].
-  /// Optionally, [length] may be specified to validate the length of the
-  /// read array. If [length] is unspecified, it will be read from the array
-  /// field.
-  /// You can read an untyped array by instantiating [ArrayReader] yourself,
-  /// however as the protocol only supports typed arrays, this create method
-  /// forces you to specify a type.
-  ///
-  /// Unlike the [ArrayBuilder], the reader mutates the state of the
-  /// [PacketBodyInputSource].
-  ArrayReader createArrayReader(DataType type, {int? length}) => ArrayReader(
-        this,
-        elementType: type,
-        validateLength: length,
-      );
-}
-
-/// Utility to read an entire array field in at once.
-class ArrayReader {
-  /// The type of each element. If specified, the array is interpreted as a
-  /// typed array and data type bytes for each element will *not* be read.
-  /// Otherwise, the array is interpreted as an untyped array and each
-  /// element's type is determined by a data type byte prefix.
-  final DataType? elementType;
-
-  /// If set, the [ArrayReader] will validate that the value read for the
-  /// array's length matches this value.
-  final int? validateLength;
-
-  /// The input source the [ArrayReader] is reading from.
-  final PacketBodyInputSource _inputSource;
-
-  ArrayReader(
-    PacketBodyInputSource inputSource, {
-    this.elementType,
-    this.validateLength,
-  }) : _inputSource = inputSource;
+  /// Reads an array of Bytes fields with [readBytes].
+  /// This does NOT null check the values because, per the protocol, Bytes
+  /// fields of length 0 are to be interpreted and represented as null fields.
+  List<Uint8List?>? readBytesArray() => readArray(DataType.bytes, () => readBytes());
 }
 
 class _PacketBodyOutputSinkField {
@@ -330,6 +411,8 @@ class PacketBodyOutputSink with _DataFieldWriter {
   /// Writes an array field based on the specified [ArrayBuilder].
   /// You should use [createArrayBuilder] to obtain a typed array builder.
   void writeArray(ArrayBuilder value) {
+    if (value._byteFields.isEmpty) return writeNull();
+
     // Get the Uint8List of all the bytes in the array.
     final arrayData = value.build();
 
@@ -613,6 +696,10 @@ abstract class _DataFieldWriter {
     // Encode the string value as a UTF-8 byte array.
     final stringBytes = Uint8List.fromList(utf8.encode(value));
 
+    if (stringBytes.isEmpty) {
+      return writeNull();
+    }
+
     // Encode the length in bytes as a VarInt.
     final stringLength = stringBytes.length.toVarInt();
 
@@ -634,6 +721,8 @@ abstract class _DataFieldWriter {
 
   /// Writes the byte list, prefixed with its size in bytes as a VarInt.
   void writeBytes(Uint8List bytes) {
+    if (bytes.isEmpty) return writeNull();
+
     // Encode the length of bytes as a VarInt.
     final bytesLength = bytes.lengthInBytes.toVarInt();
 
