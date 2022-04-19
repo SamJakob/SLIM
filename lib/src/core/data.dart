@@ -4,13 +4,38 @@ import 'dart:typed_data';
 
 /// Thrown when an invalid protocol data type is used.
 class UnknownTypeError extends Error {
-  final String typeName;
+  /// If the error was converting to a type ID from a type name, then this is
+  /// set to the name of the type. Otherwise, see [typeId].
+  /// In other words, iff [wasFromId] is false, then this is set.
+  final String? typeName;
 
-  UnknownTypeError(this.typeName);
+  /// If the error was converting to a type name from a type ID, then this is
+  /// set to the type ID. Otherwise, see [typeName].
+  /// In other words, iff [wasFromId] is true, then this is set.
+  final int? typeId;
+
+  /// Whether the error was thrown trying to convert from a type ID.
+  /// If this is true then that was the case, otherwise the error was thrown
+  /// trying to convert *to* a type ID instead of from.
+  final bool wasFromId;
+
+  /// Type error based on an invalid type name (type ID could not be found).
+  UnknownTypeError(this.typeName)
+      : wasFromId = false,
+        typeId = null;
+
+  /// Type error based on invalid type ID (type name could not be found).
+  UnknownTypeError.fromId(this.typeId)
+      : wasFromId = true,
+        typeName = null;
 
   @override
   String toString() {
-    return "Unknown type: $typeName";
+    if (wasFromId) {
+      return "Unknown type ID: ${typeId!}";
+    } else {
+      return "Unknown type: ${typeName!}";
+    }
   }
 }
 
@@ -24,6 +49,22 @@ class NotSizedTypeError extends Error {
   @override
   String toString() {
     return "Attempted to get sized of non-fixed-size type: $typeName";
+  }
+}
+
+/// Thrown when a field has an invalid value for its data type.
+class InvalidValueError extends Error {
+  /// The field's type.
+  final DataType type;
+
+  /// Optionally, the value of the field.
+  final dynamic value;
+
+  InvalidValueError(this.type, [this.value]);
+
+  @override
+  String toString() {
+    return "Invalid value for ${type.name} field" + (value ? ": $value" : ".");
   }
 }
 
@@ -158,7 +199,7 @@ extension SignedDataType on DataType {
 /// Extension that defines an accessor, .value, for all data types to get the
 /// data type ID.
 extension DataTypeValue on DataType {
-  /// Lookup table for the protocol integer Data Type ID for a given type.
+  /// Lookup table for the protocol data type byte for the [DataType].
   static const values = <DataType, int>{
     DataType.unknown: -1, // Invalid value. Used to throw an error internally.
 
@@ -184,6 +225,17 @@ extension DataTypeValue on DataType {
     DataType.array: 0x22,
   };
 
+  static Map<int, DataType>? _typeFromValuesCache;
+
+  /// Lookup table mapping a [DataType] from a protocol data type byte.
+  static Map<int, DataType> get valuesInverse {
+    if (_typeFromValuesCache != null) {
+      return _typeFromValuesCache!;
+    } else {
+      return _typeFromValuesCache = values.map((key, value) => MapEntry(value, key));
+    }
+  }
+
   /// Get the data type ID (value) for a given DataType enum entry.
   /// Throws an [UnknownTypeError] if the type is not in the lookup table.
   int get value {
@@ -197,6 +249,14 @@ extension DataTypeValue on DataType {
   /// e.g., `DataType.array.hasId(nextByte());`
   bool hasId(int typeId) {
     return value == typeId;
+  }
+
+  /// Locates the [DataType] based on the specified ID, [value].
+  static DataType of(int value) {
+    if (value < 0 || value > 0xFF) throw RangeError.range(value, 0, 0xFF, 'value', 'The specified value must be an integer between 0 and 255 (0xFF).');
+    var type = valuesInverse[value];
+    if (type == null) throw UnknownTypeError.fromId(value);
+    return type;
   }
 }
 
@@ -222,10 +282,11 @@ extension DataTypeSize on DataType {
   /// Gets the size in bytes for a given DataType enum entry.
   /// Throws a [NotSizedTypeError] if the type does not have a fixed size.
   int get size {
-    final size = sizes[this];
-    if (size == null) throw NotSizedTypeError(name);
-    return value;
+    if (!hasSize) throw NotSizedTypeError(name);
+    return sizes[this]!;
   }
+
+  bool get hasSize => sizes[this] != null;
 }
 
 //
@@ -343,7 +404,7 @@ class VarLengthNumbers {
       // (7 * 5 = 35) - (maxPosition = 32) + (1 = continuation bit)
       // = (35 - 32) + 1 = 4.
       if (currentByteIndex == 5 && (currentByte & 240) != 0) {
-        throw AssertionError("Invalid VarInt");
+        throw InvalidValueError(DataType.varInt);
       }
     } while ((currentByte & kContinueBit) != 0);
 
@@ -386,7 +447,7 @@ class VarLengthNumbers {
       // In this case, the only time the bit in the last byte is set, is
       // if the number was negative, because the sign bit overflows.
       if (currentByteIndex == 10 && (currentByte & 254) != 0) {
-        throw AssertionError("Invalid VarLong");
+        throw InvalidValueError(DataType.varLong);
       }
     } while ((currentByte & kContinueBit) != 0);
 

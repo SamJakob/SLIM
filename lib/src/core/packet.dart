@@ -122,7 +122,7 @@ class IncomingPacket extends Packet {
   final Uint8List? body;
 
   /// A utility to easily read packet data.
-  late final PacketBodyInputStream reader;
+  late final PacketBodyInputSource reader;
 
   IncomingPacket({
     required int id,
@@ -133,7 +133,7 @@ class IncomingPacket extends Packet {
           id: id,
           snowflake: snowflake,
         ) {
-    reader = PacketBodyInputStream(packet: this);
+    reader = PacketBodyInputSource(packet: this);
   }
 }
 
