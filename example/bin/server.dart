@@ -3,7 +3,7 @@ import 'package:chungus_protocol/chungus_protocol.dart';
 /// Server example for ChungusProtocol.
 /// Refer to `client.dart` for an example client.
 Future<void> main() async {
-  var server = new ChungusServer(port: 5895);
+  var server = ChungusServer(port: 5895);
   await server.start();
 
   while (true) {

@@ -1,4 +1,4 @@
 library chungus_protocol;
 
-export 'src/client.dart';
-export 'src/server.dart';
+export 'src/app/client.dart';
+export 'src/app/server.dart';

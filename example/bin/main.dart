@@ -1,12 +1,13 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:chungus_protocol/chungus_protocol.dart';
 
 /// Client example for ChungusProtocol.
 /// Refer to `server.dart` for an example server.
 Future<void> main() async {
-  var client = new ChungusClient(host: '127.0.0.1', port: 5895);
+  var client = ChungusClient(host: '127.0.0.1', port: 5895);
   await client.connect();
 
   while (true) {
