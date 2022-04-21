@@ -30,14 +30,14 @@ class NetworkEntity {
   }
 }
 
-enum PacketDirectionality { incoming, outgoing }
+enum NetworkDirectionality { incoming, outgoing }
 
 abstract class Packet {
   /// The directionality of the packet.
-  /// [PacketDirectionality.incoming] means the packet will be sent from the
-  /// current entity to another. [PacketDirectionality.outgoing] means the
+  /// [NetworkDirectionality.incoming] means the packet will be sent from the
+  /// current entity to another. [NetworkDirectionality.outgoing] means the
   /// packet has been received from another entity.
-  PacketDirectionality get directionality;
+  NetworkDirectionality get directionality;
 
   /// The packet ID.
   final int id;
@@ -110,7 +110,7 @@ abstract class Packet {
 /// the body.
 class IncomingPacket extends Packet {
   @override
-  PacketDirectionality get directionality => PacketDirectionality.incoming;
+  NetworkDirectionality get directionality => NetworkDirectionality.incoming;
 
   /// The [NetworkEntity] that sent the packet.
   final NetworkEntity sender;
@@ -143,7 +143,7 @@ class IncomingPacket extends Packet {
 /// packet header and body values and prepends the prologue.
 class OutgoingPacket extends Packet {
   @override
-  PacketDirectionality get directionality => PacketDirectionality.outgoing;
+  NetworkDirectionality get directionality => NetworkDirectionality.outgoing;
 
   /// A utility to easily write packet data.
   late final PacketBodyOutputSink writer;
