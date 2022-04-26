@@ -170,7 +170,15 @@ enum DataType {
 
   /// The signed variant of [DataType.long] (64-bit integer).
   /// Represents an integer between -2^63 and 2^63 - 1.
-  signedLong
+  signedLong,
+
+  /// Represents a field of bytes of a fixed length as defined in the
+  /// packet format.
+  fixedBytes,
+
+  /// Represents a constant (otherwise known as a 'magic') value.
+  ///https://en.wikipedia.org/wiki/Magic_number_(programming)
+  magic,
 }
 
 /// Extension that defines an accessor, .signed, for integer types to
@@ -223,6 +231,9 @@ extension DataTypeValue on DataType {
     DataType.string: 0x20,
     DataType.bytes: 0x21,
     DataType.array: 0x22,
+
+    DataType.fixedBytes: 0xFE,
+    DataType.magic: 0xFF,
   };
 
   static Map<int, DataType>? _typeFromValuesCache;

@@ -1,36 +1,14 @@
 library chungus_protocol;
 
-import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:chungus_protocol/src/core/data.dart';
+import 'package:chungus_protocol/src/core/network.dart';
 import 'package:chungus_protocol/src/core/packet_stream.dart';
 import 'package:chungus_protocol/src/utils.dart';
 
-/// Represents an entity (socket).
-/// One such use is for the return address of a received packet.
-class NetworkEntity {
-  /// The Internet Address of the host corresponding to the entity.
-  final InternetAddress address;
-
-  /// The software port of the entity.
-  final int port;
-
-  NetworkEntity({
-    required this.address,
-    required this.port,
-  });
-
-  @override
-  int get hashCode => Object.hash(address.hashCode, port.hashCode);
-
-  @override
-  bool operator ==(Object other) {
-    return other is NetworkEntity && address == other.address && port == other.port;
-  }
-}
-
-enum NetworkDirectionality { incoming, outgoing }
+/// The 'magic' constant that is found at the start of each packet.
+const kPacketMagicValue = 0x4d555354;
 
 abstract class Packet {
   /// The directionality of the packet.
@@ -65,32 +43,34 @@ abstract class Packet {
       OutgoingPacket(id: id, body: body);
 
   /// Parse and construct an [IncomingPacket] from the specified Uint8List.
-  /// This assumes the packet length has been read and stripped out of or
-  /// skipped from the packet data already.
-  factory Packet.from({
-    required Uint8List data,
+  /// This assumes the packet length and magic value fields have been read and
+  /// stripped out of or skipped from the packet data already.
+  factory Packet.parse({
     required NetworkEntity sender,
+    required Uint8List bytes,
   }) {
-    final snowflake = data.sublist(0, 16);
+    final bytesData = ByteData.sublistView(bytes);
 
-    int currentByteCounter = 0;
-    final buffer = ByteData.sublistView(data, 16);
+    // The pointer into the bytes data that we've currently read.
+    int _pointer = 0;
 
-    return IncomingPacket(
-      id: VarLengthNumbers.readVarInt(() => buffer.getUint8(currentByteCounter++)),
-      snowflake: snowflake,
-      body: data.sublist(
-        // Start index is after the snowflake (16 bytes) and packet ID
-        16 + currentByteCounter,
-        // End index is length - 1.
-        data.lengthInBytes - 1,
-      ),
-      sender: sender,
-    );
+    // Snowflake
+    if (!DataType.fixedBytes.hasId(bytesData.getUint8(_pointer++))) throw AssertionError("Invalid packet.");
+    Uint8List snowflake = ByteData.sublistView(bytes, _pointer, _pointer + 16).buffer.asUint8List();
+    _pointer += 16;
+
+    // Packet ID
+    if (!DataType.varInt.hasId(bytesData.getUint8(_pointer++))) throw AssertionError("Invalid packet.");
+    int id = VarLengthNumbers.readVarInt(() => bytesData.getUint8(_pointer++));
+
+    // Body
+    Uint8List body = ByteData.sublistView(bytes, _pointer, bytes.lengthInBytes - 1).buffer.asUint8List();
+
+    return IncomingPacket(id: id, snowflake: snowflake, body: body, sender: sender);
   }
 
   /// Construct an [IncomingPacket] from the specified fields.
-  factory Packet.fromFields({
+  factory Packet.from({
     required int id,
     required Uint8List snowflake,
     required Uint8List body,
@@ -175,9 +155,24 @@ class OutgoingPacket extends Packet {
     final length = snowflake.length + packetId.length + (hasBody ? body!.length : 0);
 
     final builder = BytesBuilder(copy: false);
+
+    // Packet Magic Value
+    builder.addByte(0xFF);
+    builder.add(toBytes(8, (data) => data.setUint64(0, kPacketMagicValue)));
+
+    // Packet Length
+    builder.addByte(0x10);
     builder.add(length.toVarInt());
+
+    // Packet Snowflake
+    builder.addByte(0xFD);
     builder.add(snowflake);
+
+    // Packet ID
+    builder.addByte(0x10);
     builder.add(packetId);
+
+    // Packet Body
     if (hasBody) builder.add(body!);
     return builder.takeBytes();
   }
