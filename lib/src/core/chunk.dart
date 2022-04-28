@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math';
 import 'dart:typed_data';
 
@@ -38,11 +39,13 @@ extension Chunkify on OutgoingPacket {
     final totalChunkCount = (packetBytes.lengthInBytes / kMaxChunkBodySize).ceil();
 
     for (int start = 0, counter = 0; start < packetBytes.lengthInBytes; start += kMaxChunkBodySize, counter++) {
-      final end = max(start + kMaxChunkBodySize, packetBytes.lengthInBytes);
+      final end = min(start + kMaxChunkBodySize, packetBytes.lengthInBytes);
       final length = end - start;
 
       // Assemble a chunk from the packet data fragment and a chunk header.
       final builder = BytesBuilder(copy: false);
+
+      final chunkBody = packetBytes.sublist(start, end);
 
       // Chunk Magic Value
       builder.addByte(DataType.magic.value);
@@ -58,7 +61,7 @@ extension Chunkify on OutgoingPacket {
 
       // Chunk Hash (XXH3 hash of chunk index and body)
       builder.addByte(DataType.fixedBytes.value);
-      builder.add(toBytes(8, (data) => data.setUint64(0, xxh3(packetBytes))));
+      builder.add(toBytes(8, (data) => data.setUint64(0, xxh3(chunkBody))));
 
       // Chunk Index
       builder.addByte(DataType.integer.value);
@@ -69,7 +72,7 @@ extension Chunkify on OutgoingPacket {
       builder.add(toBytes(4, (data) => data.setUint32(0, totalChunkCount)));
 
       // Chunk Body
-      builder.add(packetBytes.sublist(start, end));
+      builder.add(chunkBody);
 
       // Add the assembled chunk to the list of chunks.
       chunks.add(builder.takeBytes());
@@ -140,7 +143,7 @@ class IncomingChunk {
 
     // Snowflake
     if (!DataType.fixedBytes.hasId(bytesData.getUint8(_pointer++))) throw AssertionError("Invalid chunk.");
-    Uint8List snowflake = ByteData.sublistView(bytes, _pointer, _pointer + 16).buffer.asUint8List();
+    Uint8List snowflake = bytes.sublist(_pointer, _pointer + 16);
     _pointer += 16;
 
     // Hash
@@ -159,7 +162,7 @@ class IncomingChunk {
     _pointer += 4;
 
     // Body
-    Uint8List body = ByteData.sublistView(bytes, _pointer, bytes.lengthInBytes - 1).buffer.asUint8List();
+    Uint8List body = bytes.sublist(_pointer, bytes.lengthInBytes);
     if (body.lengthInBytes != length) throw AssertionError("Chunk length field mismatch.");
 
     // Hash body for integrity check.
@@ -190,6 +193,9 @@ class _ChunkCollectorChunk {
 ///
 /// Chunks are collected and mapped. Once all the constituent chunks for a
 /// packet have been collected, the packet is re-assembled and emitted.
+///
+/// Once a [ChunkCollector] has [close]d, it may not be re-opened. You must
+/// instead initialize a new ChunkCollector.
 class ChunkCollector {
   /// The map of collected chunks, used to re-assemble the entire packets.
   final Map<Uint8List, _ChunkCollectorChunk> _chunks;
@@ -197,6 +203,19 @@ class ChunkCollector {
   /// The stream controller that consumers may listen to to receive packet
   /// events.
   final StreamController<IncomingPacket> _controller;
+
+  /// Returns the stream of [IncomingPacket]s from the received re-built
+  /// chunks.
+  Stream<IncomingPacket> get stream => _controller.stream;
+
+  /// Whether the [ChunkCollector] (via the underlying [StreamController])
+  /// has been paused.
+  bool get isPaused => _controller.isPaused;
+
+  /// Whether the [ChunkCollector] (via the underlying [StreamController])
+  /// has been closed. If it has been closed, it has been cleaned up and
+  /// will need to be recreated for further use.
+  bool get isClosed => _controller.isClosed;
 
   ChunkCollector()
       : _chunks = {},
@@ -269,12 +288,16 @@ class ChunkCollector {
     // Assert that the packet length equals the chunk length.
     if (!DataType.varInt.hasId(bytesData.getUint8(_pointer++))) throw AssertionError("Invalid packet.");
     int length = VarLengthNumbers.readVarInt(() => bytesData.getUint8(_pointer++));
-    if (length != bytesData.lengthInBytes) throw AssertionError("Packet length mismatch.");
+    if (length != (bytesData.lengthInBytes - _pointer)) throw AssertionError("Packet length mismatch.");
 
     IncomingPacket incomingPacket = Packet.parse(
       sender: sender,
-      bytes: ByteData.sublistView(packet, _pointer, packet.lengthInBytes - 1).buffer.asUint8List(),
+      bytes: packet.sublist(_pointer, packet.lengthInBytes),
     ) as IncomingPacket;
     _controller.sink.add(incomingPacket);
+  }
+
+  Future<void> close() async {
+    await _controller.close();
   }
 }

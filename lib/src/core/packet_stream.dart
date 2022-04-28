@@ -1,5 +1,3 @@
-library chungus_protocol;
-
 import 'dart:convert' show utf8;
 import 'dart:typed_data';
 
@@ -26,7 +24,7 @@ class _PacketBodyInputStreamField {
   _PacketBodyInputStreamField({
     required this.buffer,
     required this.type,
-  }) : data = buffer != null ? ByteData.sublistView(buffer, 0, buffer.length - 1) : null;
+  }) : data = buffer != null ? ByteData.sublistView(buffer, 0, buffer.length) : null;
 }
 
 /// Exposes a convenient API for receiving binary packet data as structured
@@ -48,7 +46,7 @@ class PacketBodyInputSource {
   int _readPos([int? delta]) {
     // Assert that doing this read won't cause the position pointer to exceed
     // the bounds of the buffer.
-    if (__position + (delta ?? 1) > bytes.lengthInBytes - 1) {
+    if (__position + (delta ?? 1) > bytes.lengthInBytes) {
       throw RangeError.index(
         __position + (delta ?? 1),
         bytes,
@@ -93,15 +91,24 @@ class PacketBodyInputSource {
 
   /// Reads the next field from the packet (the one after the current
   /// [position]).
+  ///
   /// Checks if the packet's data type matches the specified [expectedType],
   /// throwing an [AssertionError] if it does not.
-  _PacketBodyInputStreamField? _readField(DataType expectedType) {
+  ///
+  /// Optionally [isField] may be set to false to skip reading a data type
+  /// byte.
+  _PacketBodyInputStreamField? _readField(DataType expectedType, {bool isField = true}) {
     // Read the data type.
-    final type = DataTypeValue.of(bytes[_readPos()]);
-    if (type == DataType.none) {
-      return null;
-    } else if (type != expectedType) {
-      throw AssertionError("Type mismatch: expected ${expectedType.name}, got ${type.name}");
+    DataType type;
+    if (isField) {
+      type = DataTypeValue.of(bytes[_readPos()]);
+      if (type == DataType.none) {
+        return null;
+      } else if (type != expectedType) {
+        throw AssertionError("Type mismatch: expected ${expectedType.name}, got ${type.name}");
+      }
+    } else {
+      type = expectedType;
     }
 
     // If the type has a size, read that many bytes.
@@ -145,7 +152,7 @@ class PacketBodyInputSource {
     }
 
     // Read the subsequent VarInt as the number of elements in the array.
-    int arraySize = readVarInt()!;
+    int arraySize = readVarInt(isField: false)!;
     if (arraySize < 1) return null;
 
     // Finally, read all the fields with the specified function.
@@ -159,8 +166,11 @@ class PacketBodyInputSource {
   /// Read the next field as a boolean field.
   /// If the field is of type [DataType.none] then null is returned instead.
   /// Throws an [InvalidValueError] if the field is not a boolean field.
-  bool? readBoolean() {
-    final field = _readField(DataType.boolean);
+  ///
+  /// Optionally, [isField] may be set to false to skip reading and checking
+  /// the data type byte.
+  bool? readBoolean({bool isField = true}) {
+    final field = _readField(DataType.boolean, isField: isField);
     if (field == null) return null;
 
     final value = field.buffer![0];
@@ -172,20 +182,23 @@ class PacketBodyInputSource {
   /// Reads an array of boolean fields with [readBoolean].
   /// This null-checks all the values as a default. See the documentation of
   /// [readArray] for details.
-  List<bool>? readBooleanArray() => readArray(DataType.boolean, () => readBoolean()!);
+  List<bool>? readBooleanArray() => readArray(DataType.boolean, () => readBoolean(isField: false)!);
 
-  _PacketBodyInputStreamField? _readFixIntField(DataType type, {bool signed = false}) {
+  _PacketBodyInputStreamField? _readFixIntField(DataType type, {bool signed = false, bool isField = true}) {
     // If we're reading a signed value and the specified type is unsigned,
     // we'll convert the type to its signed variant. This will ensure that
     // the type validation is correct.
     if (signed && !type.isSigned) type = type.signed!;
-    return _readField(type);
+    return _readField(type, isField: isField);
   }
 
   /// Read a byte (8-bit integer) field.
-  int? readByte({bool signed = false}) {
+  ///
+  /// Optionally, [isField] may be set to false to skip reading and checking
+  /// the data type byte.
+  int? readByte({bool signed = false, bool isField = true}) {
     // Read the field data type and field byte(s).
-    final field = _readFixIntField(DataType.byte, signed: signed);
+    final field = _readFixIntField(DataType.byte, signed: signed, isField: isField);
     if (field == null) return null;
     // Decode the number and return it.
     if (signed) {
@@ -208,12 +221,15 @@ class PacketBodyInputSource {
   ///
   /// This null-checks all the values as a default. See the documentation of
   /// [readArray] for details.
-  List<int>? readByteFieldArray({bool signed = false}) => readArray(DataType.byte, () => readByte(signed: signed)!);
+  List<int>? readByteFieldArray({bool signed = false}) => readArray(DataType.byte, () => readByte(signed: signed, isField: false)!);
 
   /// Read a short (16-bit integer) field.
-  int? readShort({bool signed = false}) {
+  ///
+  /// Optionally, [isField] may be set to false to skip reading and checking
+  /// the data type byte.
+  int? readShort({bool signed = false, bool isField = true}) {
     // Read the field data type and field byte(s).
-    final field = _readFixIntField(DataType.short, signed: signed);
+    final field = _readFixIntField(DataType.short, signed: signed, isField: isField);
     if (field == null) return null;
     // Decode the number and return it.
     if (signed) {
@@ -226,12 +242,15 @@ class PacketBodyInputSource {
   /// Reads an array of short fields with [readShort].
   /// This null-checks all the values as a default. See the documentation of
   /// [readArray] for details.
-  List<int>? readShortArray({bool signed = false}) => readArray(DataType.short, () => readShort(signed: signed)!);
+  List<int>? readShortArray({bool signed = false}) => readArray(DataType.short, () => readShort(signed: signed, isField: false)!);
 
   /// Read an integer (32-bit integer) field.
-  int? readInteger({bool signed = false}) {
+  ///
+  /// Optionally, [isField] may be set to false to skip reading and checking
+  /// the data type byte.
+  int? readInteger({bool signed = false, bool isField = true}) {
     // Read the field data type and field byte(s).
-    final field = _readFixIntField(DataType.integer, signed: signed);
+    final field = _readFixIntField(DataType.integer, signed: signed, isField: isField);
     if (field == null) return null;
     // Decode the number and return it.
     if (signed) {
@@ -244,7 +263,7 @@ class PacketBodyInputSource {
   /// Reads an array of integer fields with [readInteger].
   /// This null-checks all the values as a default. See the documentation of
   /// [readArray] for details.
-  List<int>? readIntegerArray({bool signed = false}) => readArray(DataType.integer, () => readInteger(signed: signed)!);
+  List<int>? readIntegerArray({bool signed = false}) => readArray(DataType.integer, () => readInteger(signed: signed, isField: false)!);
 
   /// Reads a 2D array of integer fields with [readArray] and [readInteger].
   /// The integer values are null-checked but the arrays are not. See the
@@ -253,13 +272,16 @@ class PacketBodyInputSource {
   /// be handled with the protocol.
   List<List<int>?>? readInteger2DArray() => readArray(
         DataType.array,
-        () => readArray(DataType.integer, () => readInteger()!),
+        () => readArray(DataType.integer, () => readInteger(isField: false)!),
       );
 
   /// Read a long (64-bit integer) field.
-  int? readLong({bool signed = false}) {
+  ///
+  /// Optionally, [isField] may be set to false to skip reading and checking
+  /// the data type byte.
+  int? readLong({bool signed = false, bool isField = true}) {
     // Read the field data type and field byte(s).
-    final field = _readFixIntField(DataType.long, signed: signed);
+    final field = _readFixIntField(DataType.long, signed: signed, isField: isField);
     if (field == null) return null;
     // Decode the number and return it.
     if (signed) {
@@ -272,12 +294,15 @@ class PacketBodyInputSource {
   /// Reads an array of long fields with [readLong].
   /// This null-checks all the values as a default. See the documentation of
   /// [readArray] for details.
-  List<int>? readLongArray({bool signed = false}) => readArray(DataType.long, () => readLong(signed: signed)!);
+  List<int>? readLongArray({bool signed = false}) => readArray(DataType.long, () => readLong(signed: signed, isField: false)!);
 
   /// Read a single-precision IEEE 754 floating point number.
-  double? readFloat() {
+  ///
+  /// Optionally, [isField] may be set to false to skip reading and checking
+  /// the data type byte.
+  double? readFloat({bool isField = true}) {
     // Read the field.
-    final field = _readField(DataType.float);
+    final field = _readField(DataType.float, isField: isField);
     if (field == null) return null;
     // Decode the float and return it.
     return field.data!.getFloat32(0);
@@ -286,12 +311,15 @@ class PacketBodyInputSource {
   /// Reads an array of float fields with [readFloat].
   /// This null-checks all the values as a default. See the documentation of
   /// [readArray] for details.
-  List<double>? readFloatArray() => readArray(DataType.float, () => readFloat()!);
+  List<double>? readFloatArray() => readArray(DataType.float, () => readFloat(isField: false)!);
 
   /// Read a double-precision IEEE 754 floating point number.
-  double? readDouble() {
+  ///
+  /// Optionally, [isField] may be set to false to skip reading and checking
+  /// the data type byte.
+  double? readDouble({bool isField = true}) {
     // Read the field.
-    final field = _readField(DataType.double);
+    final field = _readField(DataType.double, isField: isField);
     if (field == null) return null;
     // Decode the float and return it.
     return field.data!.getFloat64(0);
@@ -300,12 +328,17 @@ class PacketBodyInputSource {
   /// Reads an array of double fields with [readDouble].
   /// This null-checks all the values as a default. See the documentation of
   /// [readArray] for details.
-  List<double>? readDoubleArray() => readArray(DataType.double, () => readDouble()!);
+  List<double>? readDoubleArray() => readArray(DataType.double, () => readDouble(isField: false)!);
 
   /// Read a variable length signed integer (up to a 32-bit integer).
-  int? readVarInt() {
+  /// Optionally, [isField] may be set to false to skip reading and checking
+  /// the data type byte.
+  ///
+  /// Optionally, [isField] may be set to false to skip reading and checking
+  /// the data type byte.
+  int? readVarInt({bool isField = true}) {
     // Read the field.
-    final field = _readField(DataType.varInt);
+    final field = _readField(DataType.varInt, isField: isField);
     if (field == null) return null;
 
     // Now read the VarInt byte-by-byte.
@@ -315,12 +348,15 @@ class PacketBodyInputSource {
   /// Reads an array of VarInt fields with [readVarInt].
   /// This null-checks all the values as a default. See the documentation of
   /// [readArray] for details.
-  List<int>? readVarIntArray() => readArray(DataType.varInt, () => readVarInt()!);
+  List<int>? readVarIntArray() => readArray(DataType.varInt, () => readVarInt(isField: false)!);
 
   /// Read a variable length long signed integer (up to a 64-bit integer).
-  int? readVarLong() {
+  ///
+  /// Optionally, [isField] may be set to false to skip reading and checking
+  /// the data type byte.
+  int? readVarLong({bool isField = true}) {
     // Read the field.
-    final field = _readField(DataType.varLong);
+    final field = _readField(DataType.varLong, isField: isField);
     if (field == null) return null;
 
     // Now read the VarLong byte-by-byte.
@@ -330,17 +366,20 @@ class PacketBodyInputSource {
   /// Reads an array of VarLong fields with [readVarLong].
   /// This null-checks all the values as a default. See the documentation of
   /// [readArray] for details.
-  List<int>? readVarLongArray() => readArray(DataType.varLong, () => readVarLong()!);
+  List<int>? readVarLongArray() => readArray(DataType.varLong, () => readVarLong(isField: false)!);
 
   /// Read a UTF-8 encoded string based on its length as prefixed with a
   /// VarInt.
-  String? readString() {
+  ///
+  /// Optionally, [isField] may be set to false to skip reading and checking
+  /// the data type byte.
+  String? readString({bool isField = true}) {
     // Read the field.
-    final field = _readField(DataType.string);
+    final field = _readField(DataType.string, isField: isField);
     if (field == null) return null;
 
     // Now read the length as a VarInt.
-    int stringLength = readVarInt()!;
+    int stringLength = readVarInt(isField: false)!;
     if (stringLength < 1) return null;
 
     // Read that many bytes and return the value.
@@ -352,16 +391,19 @@ class PacketBodyInputSource {
   /// Reads an array of String fields with [readString].
   /// This does NOT null check the values because, per the protocol, Strings of
   /// length 0 are to be interpreted and represented as null fields.
-  List<String?>? readStringArray() => readArray(DataType.string, () => readString());
+  List<String?>? readStringArray() => readArray(DataType.string, () => readString(isField: false));
 
   /// Read a sequence of bytes based on its length as prefixed with a VarInt.
-  Uint8List? readBytes() {
+  ///
+  /// Optionally, [isField] may be set to false to skip reading and checking
+  /// the data type byte.
+  Uint8List? readBytes({bool isField = true}) {
     // Read the field.
-    final field = _readField(DataType.bytes);
+    final field = _readField(DataType.bytes, isField: isField);
     if (field == null) return null;
 
     // Now read the length as a VarInt.
-    int bytesLength = readVarInt()!;
+    int bytesLength = readVarInt(isField: false)!;
     if (bytesLength < 1) return null;
 
     // Read that many bytes and return the value.
@@ -373,7 +415,7 @@ class PacketBodyInputSource {
   /// Reads an array of Bytes fields with [readBytes].
   /// This does NOT null check the values because, per the protocol, Bytes
   /// fields of length 0 are to be interpreted and represented as null fields.
-  List<Uint8List?>? readBytesArray() => readArray(DataType.bytes, () => readBytes());
+  List<Uint8List?>? readBytesArray() => readArray(DataType.bytes, () => readBytes(isField: false));
 }
 
 class _PacketBodyOutputSinkField {
@@ -387,7 +429,7 @@ class _PacketBodyOutputSinkField {
   _PacketBodyOutputSinkField({
     required this.buffer,
     int offset = 1,
-  }) : data = ByteData.sublistView(buffer, offset, buffer.lengthInBytes - 1);
+  }) : data = ByteData.sublistView(buffer, offset, buffer.lengthInBytes);
 }
 
 /// Exposes a convenient API for writing structured binary data as packet data.
@@ -395,7 +437,14 @@ class PacketBodyOutputSink with _DataFieldWriter {
   @override
   final List<Uint8List> _byteFields;
 
-  PacketBodyOutputSink() : _byteFields = [];
+  /// Creates a [PacketBodyOutputSink], optionally with an existing [body]
+  /// that will be written in as an entire field of its own (with no data
+  /// type ID) which essentially means that when the output packet is created,
+  /// it will simply include the entirety of [body] before any fields later
+  /// defined with this class.
+  PacketBodyOutputSink(
+    Uint8List? body,
+  ) : _byteFields = [if (body != null) body];
 
   /// Whether the output sink has any bytes written into it.
   bool get hasBytes => _byteFields.isNotEmpty;
@@ -573,12 +622,9 @@ class ArrayBuilder with _DataFieldWriter {
 ///
 /// Additionally, the getter _byteFields may be overridden by simply declaring
 /// a private field _byteFields to store the list of fields.
-abstract class _DataFieldWriter {
+mixin _DataFieldWriter {
   List<Uint8List> get _byteFields;
   _PacketBodyOutputSinkField _createField(DataType type, {required int length});
-
-  /// Intended to be used as a mixin and should not be extended directly.
-  factory _DataFieldWriter._() => throw Exception("_DataFieldWriter should not be extended directly.");
 
   /// An alias for [writeNull].
   void writeNone() => writeNull();
@@ -739,10 +785,10 @@ abstract class _DataFieldWriter {
     );
 
     // ...add the length to the field...
-    field.buffer.setRange(1, stringLength.lengthInBytes, stringLength);
+    field.buffer.setRange(1, stringLength.lengthInBytes + 1, stringLength);
 
     // ...add the actual string data to the field...
-    field.buffer.setRange(1 + stringLength.lengthInBytes, field.buffer.lengthInBytes - 1, stringBytes);
+    field.buffer.setRange(1 + stringLength.lengthInBytes, field.buffer.lengthInBytes, stringBytes);
 
     // ...and finally, add the field buffer to the list of fields.
     _byteFields.add(field.buffer);

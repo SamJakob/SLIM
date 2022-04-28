@@ -1,39 +1,84 @@
-library chungus_protocol;
+part of 'app.dart';
 
-import 'dart:io';
+/// Client-side API for the protocol.
+/// This is a high-level API for the protocol that abstracts the lower-level
+/// packet construction.
+abstract class ChungusClient extends ChunkCollectorSocket {
+  /// The server that the client will connect to.
+  NetworkEntity get server;
 
-class ChungusClient {
-  final String host;
-  final int port;
+  /// Initializes a client for the protocol.
+  factory ChungusClient({required NetworkEntity server}) => _ChungusClientImpl(server: server);
+
+  /// Connects to the server specified on initialization.
+  Future<void> connect();
+
+  /// Sends the specified [OutgoingPacket] to the server.
+  void send(OutgoingPacket packet);
+
+  /// Closes the connection to the server.
+  ///
+  /// Due to the nature of UDP being unreliable sometimes the connection will
+  /// be closed unexpectedly. In which case, the event handlers and chunk
+  /// collector will not be cleaned up.
+  ///
+  /// Simply calling [close] again will cause these to be cleaned up.
+  /// You may use [isCleanedUp] to check if this socket has been cleaned up.
+  Future<void> close({bool skipCleanup = false});
+}
+
+class _ChungusClientImpl extends ChunkCollectorSocket implements ChungusClient {
+  @override
+  final NetworkEntity server;
 
   RawDatagramSocket? _socket;
 
-  ChungusClient({
-    required this.host,
-    required this.port,
-  });
+  /// Returns true if the socket is open and connected, otherwise false.
+  @override
+  bool get isOpen {
+    return _socket != null && super.isOpen;
+  }
 
+  _ChungusClientImpl({
+    required this.server,
+  }) : super();
+
+  @override
   Future<void> connect() async {
+    if (isCleanedUp) {
+      throw StateError(
+        "This client has been cleaned up (connection explicitly closed). "
+        "You'll need to open a new one for a new connection.",
+      );
+    }
+
     // Bind to any available address and port on the machine.
     _socket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0);
+    _bindSocketListener(_socket!);
   }
 
-  void send(String message) {
-    _socket!.send(message.codeUnits, _socket!.address, port);
+  @override
+  void send(OutgoingPacket packet) {
+    if (!isOpen) {
+      close();
+      throw StateError("Attempted to send packet whilst connection was closed.");
+    }
+
+    List<Uint8List> chunks = packet.toChunks();
+    for (final chunk in chunks) {
+      _socket!.send(chunk, server.host, server.port);
+    }
   }
 
-  // Future<IncomingMessage> receive() async {
-  //   Datagram? datagram;
-  //   while (datagram == null) datagram = _socket!.receive();
-  //   return IncomingMessage(
-  //     address: datagram.address,
-  //     port: datagram.port,
-  //     message: String.fromCharCodes(datagram.data),
-  //   );
-  // }
+  @override
+  Future<void> close({bool skipCleanup = false}) async {
+    return await _close(skipCleanup: skipCleanup);
+  }
 
-  void close() {
+  @override
+  Future<void> _close({bool skipCleanup = false}) async {
     _socket?.close();
+    super._close(skipCleanup: skipCleanup);
     _socket = null;
   }
 }

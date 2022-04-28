@@ -1,5 +1,3 @@
-library chungus_protocol;
-
 import 'dart:typed_data';
 
 /// Thrown when an invalid protocol data type is used.

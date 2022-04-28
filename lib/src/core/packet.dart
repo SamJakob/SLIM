@@ -1,5 +1,3 @@
-library chungus_protocol;
-
 import 'dart:typed_data';
 
 import 'package:chungus_protocol/src/core/data.dart';
@@ -34,13 +32,14 @@ abstract class Packet {
     required this.snowflake,
   });
 
-  /// Creates a new packet. This is intended for outgoing packets where they
-  /// would be created by this instance.
-  factory Packet.new({
+  /// Alias to create a new [OutgoingPacket] with the specified [id].
+  /// See [OutgoingPacket.new].
+  static OutgoingPacket create({
     required int id,
-    required Uint8List body,
+    Uint8List? snowflake,
+    Uint8List? body,
   }) =>
-      OutgoingPacket(id: id, body: body);
+      OutgoingPacket(id: id, snowflake: snowflake, body: body);
 
   /// Parse and construct an [IncomingPacket] from the specified Uint8List.
   /// This assumes the packet length and magic value fields have been read and
@@ -56,7 +55,7 @@ abstract class Packet {
 
     // Snowflake
     if (!DataType.fixedBytes.hasId(bytesData.getUint8(_pointer++))) throw AssertionError("Invalid packet.");
-    Uint8List snowflake = ByteData.sublistView(bytes, _pointer, _pointer + 16).buffer.asUint8List();
+    Uint8List snowflake = bytes.sublist(_pointer, _pointer + 16);
     _pointer += 16;
 
     // Packet ID
@@ -64,7 +63,7 @@ abstract class Packet {
     int id = VarLengthNumbers.readVarInt(() => bytesData.getUint8(_pointer++));
 
     // Body
-    Uint8List body = ByteData.sublistView(bytes, _pointer, bytes.lengthInBytes - 1).buffer.asUint8List();
+    Uint8List body = bytes.sublist(_pointer, bytes.lengthInBytes);
 
     return IncomingPacket(id: id, snowflake: snowflake, body: body, sender: sender);
   }
@@ -104,6 +103,10 @@ class IncomingPacket extends Packet {
   /// A utility to easily read packet data.
   late final PacketBodyInputSource reader;
 
+  /// Initializes an [IncomingPacket] with the specified parameters. This is
+  /// considered a 'lower level' form of the API exposed by [Packet], as this
+  /// class would normally be constructed internally and exposed by some
+  /// event stream.
   IncomingPacket({
     required int id,
     required Uint8List snowflake,
@@ -138,38 +141,63 @@ class OutgoingPacket extends Packet {
     return null;
   }
 
+  /// Initializes an [OutgoingPacket] with the specified parameters. This can
+  /// be used directly as an API helper to generate outgoing packet data, but
+  /// is also used under-the-hood by other convenience methods, such as the
+  /// factory methods on the [Packet] class.
+  ///
+  /// Optionally, [snowflake] may be specified to use an explicit value. If it
+  /// is not specified, a random one will be generated with a CSPRNG.
+  ///
+  /// Additionally, a [body] may be optionally specified. If it is, the value
+  /// will be prepended to the final body of this packet. (This behavior
+  /// is defined by the [PacketBodyOutputSink] constructor.
   OutgoingPacket({
     required int id,
-    required Uint8List body,
+    Uint8List? snowflake,
+    Uint8List? body,
   }) : super._construct(
           id: id,
-          snowflake: ProtocolUtils.uuid.v4obj().toBytes(),
+          snowflake: snowflake ?? ProtocolUtils.uuid.v4obj().toBytes(),
         ) {
-    writer = PacketBodyOutputSink();
+    writer = PacketBodyOutputSink(body);
   }
+
+  /// Creates an [OutgoingPacket] from the specified [IncomingPacket], such
+  /// that it could be echoed back to the sender.
+  ///
+  /// Additionally, if [keepSnowflake] is set to `true`, the same snowflake
+  /// will be used in the [OutgoingPacket] as was defined in the
+  /// [IncomingPacket]. (Otherwise a new one will be generated as usual).
+  OutgoingPacket.echo(IncomingPacket packet, {bool keepSnowflake = false})
+      : this(
+          id: packet.id,
+          snowflake: keepSnowflake ? packet.snowflake : null,
+          body: packet.body,
+        );
 
   /// Collect all of the packet data, build the header, attach the prologue
   /// and the body and return the resulting entire packet as a [Uint8List].
   Uint8List pack() {
     final packetId = id.toVarInt();
-    final length = snowflake.length + packetId.length + (hasBody ? body!.length : 0);
+    final length = 2 + snowflake.length + packetId.length + (hasBody ? body!.length : 0);
 
     final builder = BytesBuilder(copy: false);
 
     // Packet Magic Value
-    builder.addByte(0xFF);
+    builder.addByte(DataType.magic.value);
     builder.add(toBytes(8, (data) => data.setUint64(0, kPacketMagicValue)));
 
     // Packet Length
-    builder.addByte(0x10);
+    builder.addByte(DataType.varInt.value);
     builder.add(length.toVarInt());
 
     // Packet Snowflake
-    builder.addByte(0xFD);
+    builder.addByte(DataType.fixedBytes.value);
     builder.add(snowflake);
 
     // Packet ID
-    builder.addByte(0x10);
+    builder.addByte(DataType.varInt.value);
     builder.add(packetId);
 
     // Packet Body
