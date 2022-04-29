@@ -79,15 +79,7 @@ class PacketBodyInputSource {
 
   PacketBodyInputSource({
     required this.packet,
-  }) {
-    if (!packet.hasBody) {
-      throw ArgumentError.value(
-        packet.body,
-        "packet.body",
-        "The specified packet must have a body.",
-      );
-    }
-  }
+  });
 
   /// Reads the next field from the packet (the one after the current
   /// [position]).

@@ -7,11 +7,12 @@ import 'package:chungus_protocol/src/core/data.dart';
 import 'package:chungus_protocol/src/core/network.dart';
 import 'package:chungus_protocol/src/core/packet.dart';
 import 'package:chungus_protocol/src/utils.dart';
+import 'package:uuid/uuid.dart';
 import 'package:xxh3/xxh3.dart';
 
 /// The size of a chunk header.
 /// This is fixed as the chunk header uses fixed length field types.
-const kChunkHeaderSize = 48;
+const kChunkHeaderSize = 44;
 
 /// The maximum size of a chunk, in bytes.
 /// This includes all header fields.
@@ -49,7 +50,7 @@ extension Chunkify on OutgoingPacket {
 
       // Chunk Magic Value
       builder.addByte(DataType.magic.value);
-      builder.add(toBytes(8, (data) => data.setUint64(0, kChunkMagicValue)));
+      builder.add(toBytes(4, (data) => data.setUint32(0, kChunkMagicValue)));
 
       // Chunk Length
       builder.addByte(DataType.short.value);
@@ -128,10 +129,10 @@ class IncomingChunk {
     int _pointer = 0;
 
     // Assert that the bytes start with the chunk's magic header.
-    if (!DataType.magic.hasId(bytesData.getUint8(_pointer++)) || bytesData.getUint64(_pointer) != kChunkMagicValue) {
+    if (!DataType.magic.hasId(bytesData.getUint8(_pointer++)) || bytesData.getUint32(_pointer) != kChunkMagicValue) {
       throw AssertionError("Invalid chunk.");
     }
-    _pointer += 8;
+    _pointer += 4;
 
     // Attempt to read each of the header fields.
 
@@ -198,7 +199,7 @@ class _ChunkCollectorChunk {
 /// instead initialize a new ChunkCollector.
 class ChunkCollector {
   /// The map of collected chunks, used to re-assemble the entire packets.
-  final Map<Uint8List, _ChunkCollectorChunk> _chunks;
+  final Map<String, _ChunkCollectorChunk> _chunks;
 
   /// The stream controller that consumers may listen to to receive packet
   /// events.
@@ -225,8 +226,10 @@ class ChunkCollector {
   void addChunk(IncomingChunk chunk) {
     // Initialize this snowflake in the chunks map if it does not already
     // exist.
-    if (!_chunks.containsKey(chunk.snowflake)) {
-      _chunks[chunk.snowflake] = _ChunkCollectorChunk(
+    String snowflake = Uuid.unparse(chunk.snowflake);
+
+    if (!_chunks.containsKey(snowflake)) {
+      _chunks[snowflake] = _ChunkCollectorChunk(
         sender: chunk.sender,
         chunks: List.filled(chunk.count, null, growable: false),
       );
@@ -234,22 +237,22 @@ class ChunkCollector {
 
     // TODO: add timeout to ensure incomplete chunks are not left indefinitely.
 
-    // Assert that this chunk's sender matches the sender of that snowflake.
-    if (_chunks[chunk.snowflake]!.sender != chunk.sender) {
+    // Assert that this chunk's sender matches the sender of the group this
+    // chunk would belong to.
+    if (_chunks[snowflake]!.sender != chunk.sender) {
       throw AssertionError("Security error. Chunk sender mismatch.");
     }
 
-    // Assert that this chunk's length matches the lengths of any non-null
-    // chunk bodies in the chunks map.
-    if (_chunks[chunk.snowflake]!.chunks.any((element) => element != null && element.lengthInBytes != chunk.length)) {
-      throw AssertionError("Chunk length mismatch.");
+    // Assert that this chunk's count matches the length of the chunk group.
+    if (_chunks[snowflake]!.chunks.length != chunk.count) {
+      throw AssertionError("Chunk integrity error. Chunk count mismatch.");
     }
 
     // Now, add this chunk's body to the chunk's map.
-    _chunks[chunk.snowflake]!.chunks[chunk.index] = chunk.body;
+    _chunks[snowflake]!.chunks[chunk.index] = chunk.body;
 
     // Check if there are no null bytes left in the chunk's map.
-    final entirePacket = !_chunks[chunk.snowflake]!.chunks.any((element) => element == null);
+    final entirePacket = !_chunks[snowflake]!.chunks.any((element) => element == null);
 
     // If an entire packet has been received, remove it from the map and emit
     // the packet.
@@ -257,9 +260,11 @@ class ChunkCollector {
       // We can cast the list to a null-checked [Uint8List] because we check
       // that there are no null bytes.
       _emit(
-        _chunks[chunk.snowflake]!.sender,
-        _chunks[chunk.snowflake]!.chunks.cast<Uint8List>(),
+        _chunks[snowflake]!.sender,
+        _chunks[snowflake]!.chunks.cast<Uint8List>(),
       );
+      // ...and remove the chunk from the map as it's now completed.
+      _chunks.remove(snowflake);
     }
   }
 
@@ -267,11 +272,11 @@ class ChunkCollector {
   /// If the stream controller is paused, the packet is added to the backlog,
   /// until the stream is resumed.
   void _emit(NetworkEntity sender, List<Uint8List> packetChunks) {
+    // Concatenate the packet chunks.
     final builder = BytesBuilder(copy: false);
-    for (final chunkBody in packetChunks) {
-      builder.add(chunkBody);
-    }
+    packetChunks.forEach(builder.add);
     final packet = builder.takeBytes();
+
     final bytesData = ByteData.sublistView(packet);
 
     // -- Read the magic and length value from the packet and strip them out.
@@ -280,15 +285,17 @@ class ChunkCollector {
     int _pointer = 0;
 
     // Assert that the bytes start with the packet's magic header.
-    if (!DataType.magic.hasId(bytesData.getUint8(_pointer++)) || bytesData.getUint64(_pointer) != kPacketMagicValue) {
+    if (!DataType.magic.hasId(bytesData.getUint8(_pointer++)) || bytesData.getUint32(_pointer) != kPacketMagicValue) {
       throw AssertionError("Invalid packet.");
     }
-    _pointer += 8;
+    _pointer += 4;
 
     // Assert that the packet length equals the chunk length.
     if (!DataType.varInt.hasId(bytesData.getUint8(_pointer++))) throw AssertionError("Invalid packet.");
     int length = VarLengthNumbers.readVarInt(() => bytesData.getUint8(_pointer++));
-    if (length != (bytesData.lengthInBytes - _pointer)) throw AssertionError("Packet length mismatch.");
+    if (length != (bytesData.lengthInBytes - _pointer)) {
+      throw AssertionError("Packet length mismatch (expected: $length, got ${(bytesData.lengthInBytes - _pointer)}).");
+    }
 
     IncomingPacket incomingPacket = Packet.parse(
       sender: sender,

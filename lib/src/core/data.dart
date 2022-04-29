@@ -323,7 +323,7 @@ typedef ReadByteFunction = int Function();
 /// https://wiki.vg/Protocol#VarInt_and_VarLong
 class VarLengthNumbers {
   /// Represents 0b1000_0000.
-  static const kContinueBit = 1 << 8;
+  static const kContinueBit = 1 << 7;
 
   /// Represents 0b0111_1111.
   static const kSegmentBits = 127;
@@ -362,18 +362,17 @@ class VarLengthNumbers {
     do {
       // Start by writing the value. This automatically handles the edge
       // case where value = 0.
-      writer((
-              // Write the segment bits (7 least significant bits) of the
-              // value and OR it with the appropriate 'Continue Bit' value.
-              (value & kSegmentBits) |
-                  // The 'Continue Bit' is the most significant bit and should be
-                  // 1 if we need to write more bytes to send the entire value.
-                  //
-                  // We check this by seeing if there are any bits in 'value',
-                  // (excluding the segment bits we just wrote) that are set.
-                  // If there are, then we know that we need to write another
-                  ((value & ~kSegmentBits) != 0 ? kContinueBit : 0))
-          .toUnsigned(8));
+      writer(
+          // Write the segment bits (7 least significant bits) of the
+          // value and OR it with the appropriate 'Continue Bit' value.
+          (value & kSegmentBits) |
+              // The 'Continue Bit' is the most significant bit and should be
+              // 1 if we need to write more bytes to send the entire value.
+              //
+              // We check this by seeing if there are any bits in 'value',
+              // (excluding the segment bits we just wrote) that are set.
+              // If there are, then we know that we need to write another
+              ((value & ~kSegmentBits) != 0 ? kContinueBit : 0));
 
       // Shift value right, with the sign bit.
       value >>>= 7;

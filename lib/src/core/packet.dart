@@ -186,7 +186,7 @@ class OutgoingPacket extends Packet {
 
     // Packet Magic Value
     builder.addByte(DataType.magic.value);
-    builder.add(toBytes(8, (data) => data.setUint64(0, kPacketMagicValue)));
+    builder.add(toBytes(4, (data) => data.setUint32(0, kPacketMagicValue)));
 
     // Packet Length
     builder.addByte(DataType.varInt.value);
