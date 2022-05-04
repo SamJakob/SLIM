@@ -38,7 +38,7 @@ extension Chunkify on OutgoingPacket {
     final chunks = <Uint8List>[];
     final totalChunkCount = (packetBytes.lengthInBytes / kMaxChunkBodySize).ceil();
 
-    for (int start = 0, counter = 0; start < packetBytes.lengthInBytes; start += kMaxChunkBodySize, counter++) {
+    for (int start = 0, counter = Random().nextInt((1 << 30) - totalChunkCount - 1) + 1; start < packetBytes.lengthInBytes; start += kMaxChunkBodySize, counter++) {
       final end = min(start + kMaxChunkBodySize, packetBytes.lengthInBytes);
       final length = end - start;
 
@@ -180,11 +180,26 @@ class IncomingChunk {
   }
 }
 
-class _ChunkCollectorChunk {
+class _ChunkCollectorGroup {
+  final int count;
   final NetworkEntity sender;
-  final List<Uint8List?> chunks;
+  final Map<int, Uint8List?> _chunks;
 
-  _ChunkCollectorChunk({required this.sender, required this.chunks});
+  _ChunkCollectorGroup({required this.count, required this.sender}) : _chunks = {};
+
+  bool get complete {
+    return !_chunks.values.any((element) => element == null) && _chunks.length == count;
+  }
+
+  void addChunkToGroup(int id, Uint8List chunk) {
+    _chunks[id] = chunk;
+  }
+
+  List<Uint8List> getChunks() {
+    var chunksEntryList = _chunks.entries.toList();
+    chunksEntryList.sort((a, b) => a.key.compareTo(b.key));
+    return chunksEntryList.map<Uint8List>((e) => e.value!).toList();
+  }
 }
 
 /// A 'middleware' that accepts arrays of raw bytes (such as those directly
@@ -198,7 +213,7 @@ class _ChunkCollectorChunk {
 /// instead initialize a new ChunkCollector.
 class ChunkCollector {
   /// The map of collected chunks, used to re-assemble the entire packets.
-  final Map<String, _ChunkCollectorChunk> _chunks;
+  final Map<String, _ChunkCollectorGroup> _chunks;
 
   /// The stream controller that consumers may listen to to receive packet
   /// events.
@@ -228,9 +243,9 @@ class ChunkCollector {
     String snowflake = Uuid.unparse(chunk.snowflake);
 
     if (!_chunks.containsKey(snowflake)) {
-      _chunks[snowflake] = _ChunkCollectorChunk(
+      _chunks[snowflake] = _ChunkCollectorGroup(
         sender: chunk.sender,
-        chunks: List.filled(chunk.count, null, growable: false),
+        count: chunk.count,
       );
     }
 
@@ -243,15 +258,15 @@ class ChunkCollector {
     }
 
     // Assert that this chunk's count matches the length of the chunk group.
-    if (_chunks[snowflake]!.chunks.length != chunk.count) {
+    if (_chunks[snowflake]!.count != chunk.count) {
       throw AssertionError("Chunk integrity error. Chunk count mismatch.");
     }
 
     // Now, add this chunk's body to the chunk's map.
-    _chunks[snowflake]!.chunks[chunk.index] = chunk.body;
+    _chunks[snowflake]!.addChunkToGroup(chunk.index, chunk.body);
 
     // Check if there are no null bytes left in the chunk's map.
-    final entirePacket = !_chunks[snowflake]!.chunks.any((element) => element == null);
+    final entirePacket = _chunks[snowflake]!.complete;
 
     // If an entire packet has been received, remove it from the map and emit
     // the packet.
@@ -260,7 +275,7 @@ class ChunkCollector {
       // that there are no null bytes.
       _emit(
         _chunks[snowflake]!.sender,
-        _chunks[snowflake]!.chunks.cast<Uint8List>(),
+        _chunks[snowflake]!.getChunks(),
       );
       // ...and remove the chunk from the map as it's now completed.
       _chunks.remove(snowflake);

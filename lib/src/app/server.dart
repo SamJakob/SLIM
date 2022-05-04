@@ -56,6 +56,7 @@ class _SLIMServerImpl extends ChunkCollectorSocket implements SLIMServer {
   @override
   void send(NetworkEntity to, OutgoingPacket packet) {
     List<Uint8List> chunks = packet.toChunks();
+
     for (final chunk in chunks) {
       _socket!.send(chunk, to.host, to.port);
     }

@@ -16,10 +16,18 @@ class NetworkEntity {
   /// The software port of the entity.
   final int port;
 
+  /// Represents an entity that may be communicated with over the SLIM
+  /// protocol.
   const NetworkEntity({
     InternetAddress? host,
     required this.port,
   }) : _host = host;
+
+  /// Creates a [NetworkEntity] based on the first result returned by
+  /// looking up the specified [host].
+  static Future<NetworkEntity> lookup({required String host, required int port}) async {
+    return NetworkEntity(host: (await InternetAddress.lookup(host)).first, port: port);
+  }
 
   @override
   int get hashCode => Object.hash(_host.hashCode, port.hashCode);

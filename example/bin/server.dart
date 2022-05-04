@@ -11,8 +11,18 @@ Future<void> main() async {
 
   // Listen for packets and respond with the same packet ID and data.
   server.listen((IncomingPacket packet) {
-    print(packet);
-    server.send(packet.sender, OutgoingPacket.echo(packet));
+    print("-- Incoming Packet: #${packet.id}");
+    print(packet.reader.readString());
+    print(packet.reader.readString());
+
+    print("Sending response...");
+    server.send(
+      packet.sender,
+      OutgoingPacket(id: 0x00)
+        ..writer.writeString("hello")
+        ..writer.writeString("howdy" * 1024),
+    );
+    // server.send(packet.sender, OutgoingPacket.echo(packet));
   });
 
   print('Now listening on ${server.host.address}:${server.port}');
