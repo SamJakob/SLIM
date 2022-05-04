@@ -1,2 +1,2 @@
-# ChungusProtocol
-Dart library for the Chungus v2 messaging protocol.
+# SLIM (Scalable Live Internet Messaging)
+Dart library for the SLIM messaging protocol.

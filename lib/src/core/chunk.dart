@@ -1,12 +1,11 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:math';
 import 'dart:typed_data';
 
-import 'package:chungus_protocol/src/core/data.dart';
-import 'package:chungus_protocol/src/core/network.dart';
-import 'package:chungus_protocol/src/core/packet.dart';
-import 'package:chungus_protocol/src/utils.dart';
+import 'package:slim_protocol/src/core/data.dart';
+import 'package:slim_protocol/src/core/network.dart';
+import 'package:slim_protocol/src/core/packet.dart';
+import 'package:slim_protocol/src/utils.dart';
 import 'package:uuid/uuid.dart';
 import 'package:xxh3/xxh3.dart';
 

@@ -1,11 +1,11 @@
-library chungus_protocol;
+library slim_protocol;
 
 import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:chungus_protocol/src/core/chunk.dart';
-import 'package:chungus_protocol/src/core/packet.dart';
+import 'package:slim_protocol/src/core/chunk.dart';
+import 'package:slim_protocol/src/core/packet.dart';
 
 import '../core/network.dart';
 

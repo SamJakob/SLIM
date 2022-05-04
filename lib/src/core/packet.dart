@@ -1,9 +1,9 @@
 import 'dart:typed_data';
 
-import 'package:chungus_protocol/src/core/data.dart';
-import 'package:chungus_protocol/src/core/network.dart';
-import 'package:chungus_protocol/src/core/packet_stream.dart';
-import 'package:chungus_protocol/src/utils.dart';
+import 'package:slim_protocol/src/core/data.dart';
+import 'package:slim_protocol/src/core/network.dart';
+import 'package:slim_protocol/src/core/packet_stream.dart';
+import 'package:slim_protocol/src/utils.dart';
 
 /// The 'magic' constant that is found at the start of each packet.
 const kPacketMagicValue = 0x4d555354;

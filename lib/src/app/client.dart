@@ -3,12 +3,12 @@ part of 'app.dart';
 /// Client-side API for the protocol.
 /// This is a high-level API for the protocol that abstracts the lower-level
 /// packet construction.
-abstract class ChungusClient extends ChunkCollectorSocket {
+abstract class SLIMClient extends ChunkCollectorSocket {
   /// The server that the client will connect to.
   NetworkEntity get server;
 
   /// Initializes a client for the protocol.
-  factory ChungusClient({required NetworkEntity server}) => _ChungusClientImpl(server: server);
+  factory SLIMClient({required NetworkEntity server}) => _SLIMClientImpl(server: server);
 
   /// Connects to the server specified on initialization.
   Future<void> connect();
@@ -27,7 +27,7 @@ abstract class ChungusClient extends ChunkCollectorSocket {
   Future<void> close({bool skipCleanup = false});
 }
 
-class _ChungusClientImpl extends ChunkCollectorSocket implements ChungusClient {
+class _SLIMClientImpl extends ChunkCollectorSocket implements SLIMClient {
   @override
   final NetworkEntity server;
 
@@ -39,7 +39,7 @@ class _ChungusClientImpl extends ChunkCollectorSocket implements ChungusClient {
     return _socket != null && super.isOpen;
   }
 
-  _ChungusClientImpl({
+  _SLIMClientImpl({
     required this.server,
   }) : super();
 

@@ -3,12 +3,14 @@ part of 'app.dart';
 /// Server-side API for the protocol.
 /// This is a high-level API for the protocol that abstracts the lower-level
 /// packet construction.
-abstract class ChungusServer extends ChunkCollectorSocket {
+abstract class SLIMServer extends ChunkCollectorSocket {
+  InternetAddress get host;
+
   /// The port that the server will bind to.
   int get port;
 
   /// Initializes a server for the protocol.
-  factory ChungusServer({required int port}) => _ChungusServerImpl(port: port);
+  factory SLIMServer({required InternetAddress host, required int port}) => _SLIMServerImpl(host: host, port: port);
 
   /// Starts the server and listens for connections.
   Future<void> start();
@@ -20,7 +22,10 @@ abstract class ChungusServer extends ChunkCollectorSocket {
   Future<void> close();
 }
 
-class _ChungusServerImpl extends ChunkCollectorSocket implements ChungusServer {
+class _SLIMServerImpl extends ChunkCollectorSocket implements SLIMServer {
+  @override
+  final InternetAddress host;
+
   @override
   final int port;
 
@@ -32,7 +37,7 @@ class _ChungusServerImpl extends ChunkCollectorSocket implements ChungusServer {
     return _socket != null && super.isOpen;
   }
 
-  _ChungusServerImpl({required this.port}) : super();
+  _SLIMServerImpl({required this.host, required this.port}) : super();
 
   @override
   Future<void> start() async {
@@ -44,7 +49,7 @@ class _ChungusServerImpl extends ChunkCollectorSocket implements ChungusServer {
     }
 
     // Bind to the specified service port on any address.
-    _socket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, port);
+    _socket = await RawDatagramSocket.bind(host, port);
     _bindSocketListener(_socket!);
   }
 

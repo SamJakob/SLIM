@@ -1,4 +1,4 @@
-library chungus_protocol;
+library slim_protocol;
 
 import 'dart:typed_data';
 

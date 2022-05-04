@@ -1,8 +1,8 @@
 import 'dart:convert' show utf8;
 import 'dart:typed_data';
 
-import 'package:chungus_protocol/src/core/data.dart';
-import 'package:chungus_protocol/src/core/packet.dart';
+import 'package:slim_protocol/src/core/data.dart';
+import 'package:slim_protocol/src/core/packet.dart';
 
 class _PacketBodyInputStreamField {
   /// The buffer containing the field data itself.

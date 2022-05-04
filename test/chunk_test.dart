@@ -4,10 +4,10 @@ import 'dart:math';
 import 'dart:convert';
 import 'dart:typed_data';
 
-import 'package:chungus_protocol/chungus_protocol.dart';
-import 'package:chungus_protocol/src/core/chunk.dart';
-import 'package:chungus_protocol/src/core/data.dart';
-import 'package:chungus_protocol/src/core/packet.dart';
+import 'package:slim_protocol/slim_protocol.dart';
+import 'package:slim_protocol/src/core/chunk.dart';
+import 'package:slim_protocol/src/core/data.dart';
+import 'package:slim_protocol/src/core/packet.dart';
 import 'package:test/test.dart';
 import 'package:uuid/uuid.dart';
 

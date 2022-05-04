@@ -1,5 +1,5 @@
-name: chungus_protocol
-version: 2.0.0
+name: slim_protocol
+version: 1.0.0
 environment:
   sdk: '>=2.16.0 <3.0.0'
 
