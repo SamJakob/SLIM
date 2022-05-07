@@ -37,12 +37,22 @@ extension SignalTypeValue on SignalType {
         return 0xFF;
     }
   }
+
+  static SignalType of(int value) {
+    for (SignalType type in SignalType.values) {
+      if (type.value == value) return type;
+    }
+
+    throw AssertionError("Unknown signal type: $value");
+  }
 }
 
 enum RejectedSignalReason {
   hashMismatch,
   fieldTypeMismatch,
   badFieldValue,
+  timeout,
+  requestResend,
 }
 
 extension RejectedSignalReasonValue on RejectedSignalReason {
@@ -54,7 +64,19 @@ extension RejectedSignalReasonValue on RejectedSignalReason {
         return 0x01;
       case RejectedSignalReason.badFieldValue:
         return 0x02;
+      case RejectedSignalReason.timeout:
+        return 0xEF;
+      case RejectedSignalReason.requestResend:
+        return 0xFF;
     }
+  }
+
+  static RejectedSignalReason of(int value) {
+    for (RejectedSignalReason reason in RejectedSignalReason.values) {
+      if (reason.value == value) return reason;
+    }
+
+    throw AssertionError("Unknown rejection reason: $value");
   }
 }
 
@@ -169,13 +191,50 @@ class IncomingSignal extends Signal {
     required this.hash,
     required this.length,
     required SignalType type,
-    required Uint8List body,
+    Uint8List? body,
   }) : super(
           type: type,
           body: body,
         );
 
   factory IncomingSignal.parse(NetworkEntity sender, Uint8List bytes) {
-    throw UnimplementedError();
+    final bytesData = ByteData.sublistView(bytes);
+
+    // The pointer into the bytes data that we've currently read.
+    int _pointer = 0;
+
+    // Assert that the bytes start with the signal's magic header.
+    if (!DataType.magic.hasId(bytesData.getUint8(_pointer++)) || bytesData.getUint32(_pointer) != kSignalMagicValue) {
+      throw AssertionError("Invalid signal.");
+    }
+    _pointer += 4;
+
+    // Attempt to read each of the prologue and header fields.
+
+    // Length
+    int lengthType = bytesData.getUint8(_pointer++);
+    if (!DataType.byte.hasId(lengthType) && !DataType.none.hasId(lengthType)) throw AssertionError("Invalid signal.");
+    int length = DataType.byte.hasId(lengthType) ? bytesData.getUint8(_pointer++) : 0;
+
+    // Hash
+    if (!DataType.fixedBytes.hasId(bytesData.getUint8(_pointer++))) throw AssertionError("Invalid signal.");
+    int hash = bytesData.getUint64(_pointer++);
+    _pointer += 8;
+
+    // Type
+    if (!DataType.byte.hasId(bytesData.getUint8(_pointer++))) throw AssertionError("Invalid signal.");
+    int type = bytesData.getUint8(_pointer++);
+
+    // Body
+    Uint8List? body;
+    if (length > 0) body = bytes.sublist(_pointer, bytes.lengthInBytes);
+
+    return IncomingSignal(
+      sender: sender,
+      hash: hash,
+      length: length,
+      type: SignalTypeValue.of(type),
+      body: body,
+    );
   }
 }

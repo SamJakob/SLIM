@@ -38,7 +38,9 @@ extension Chunkify on OutgoingPacket {
     final chunks = <Uint8List>[];
     final totalChunkCount = (packetBytes.lengthInBytes / kMaxChunkBodySize).ceil();
 
-    for (int start = 0, counter = Random().nextInt((1 << 30) - totalChunkCount - 1) + 1; start < packetBytes.lengthInBytes; start += kMaxChunkBodySize, counter++) {
+    for (int start = 0, counter = Random().nextInt((1 << 30) - totalChunkCount - 1) + 1;
+        start < packetBytes.lengthInBytes;
+        start += kMaxChunkBodySize, counter++) {
       final end = min(start + kMaxChunkBodySize, packetBytes.lengthInBytes);
       final length = end - start;
 
@@ -133,7 +135,7 @@ class IncomingChunk {
     }
     _pointer += 4;
 
-    // Attempt to read each of the header fields.
+    // Attempt to read each of the prologue fields.
 
     // Length
     if (!DataType.short.hasId(bytesData.getUint8(_pointer++))) throw AssertionError("Invalid chunk.");
