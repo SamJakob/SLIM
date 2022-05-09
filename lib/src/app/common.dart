@@ -97,6 +97,10 @@ abstract class ChunkCollectorSocket {
                 logger.d(() => "Processed signal: ${signal.log}");
                 printBlankDebugLine();
 
+                if (signal.type == SignalType.ping) {
+                  handleSignal(NetworkEntity(host: datagram.address, port: datagram.port), Signal.pong());
+                }
+
                 _signalStreamController.add(signal);
               } on AssertionError catch (ex) {
                 logger.e(ex.message, ex);
