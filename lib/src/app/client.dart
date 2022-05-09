@@ -16,6 +16,9 @@ abstract class SLIMClient extends ChunkCollectorSocket {
   /// Sends the specified [OutgoingPacket] to the server.
   void send(OutgoingPacket packet);
 
+  /// Sends the specified [Signal] to the server.
+  void sendSignal(Signal signal);
+
   /// Closes the connection to the server.
   ///
   /// Due to the nature of UDP being unreliable sometimes the connection will
@@ -67,6 +70,34 @@ class _SLIMClientImpl extends ChunkCollectorSocket implements SLIMClient {
     List<Uint8List> chunks = packet.toChunks();
     for (final chunk in chunks) {
       _socket!.send(chunk, server.host, server.port);
+    }
+  }
+
+  @override
+  void sendSignal(Signal signal) {
+    _socket!.send(signal.pack(), server.host, server.port);
+  }
+
+  @override
+  void handleSignal(NetworkEntity to, Signal signal) {
+    sendSignal(signal);
+  }
+
+  @override
+  void handleChunkError(NetworkEntity sender, ChunkError error) {
+    // If the error was because the chunk was rejected, and there is a chunk
+    // snowflake, we'll send a chunk rejection signal.
+    if (error.rejected && error.snowflake != null) {
+      sendSignal(Signal.rejected(snowflake: error.snowflake!, reason: error.reason));
+    }
+  }
+
+  @override
+  void handlePacketError(NetworkEntity sender, PacketError error) {
+    // If the error was because the packet was rejected, and there is a packet
+    // snowflake, we'll send a packet rejection signal.
+    if (error.rejected && error.snowflake != null) {
+      sendSignal(Signal.rejected(snowflake: error.snowflake!, reason: error.reason));
     }
   }
 

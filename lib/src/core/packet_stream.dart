@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:slim_protocol/src/core/data.dart';
 import 'package:slim_protocol/src/core/packet.dart';
+import 'package:slim_protocol/src/domain/error.dart';
 
 class _PacketBodyInputStreamField {
   /// The buffer containing the field data itself.

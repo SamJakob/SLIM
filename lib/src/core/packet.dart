@@ -118,6 +118,11 @@ class IncomingPacket extends Packet {
         ) {
     reader = PacketBodyInputSource(packet: this);
   }
+
+  static bool isPacket(Uint8List bytes) {
+    final bytesData = ByteData.sublistView(bytes);
+    return bytes[0] == 0xFF && bytesData.getUint32(1) == kPacketMagicValue;
+  }
 }
 
 /// Represents an outgoing packet.

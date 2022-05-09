@@ -2,9 +2,12 @@ import 'dart:async';
 import 'dart:math';
 import 'dart:typed_data';
 
+import 'package:slim_protocol/slim_protocol.dart';
 import 'package:slim_protocol/src/core/data.dart';
 import 'package:slim_protocol/src/core/network.dart';
 import 'package:slim_protocol/src/core/packet.dart';
+import 'package:slim_protocol/src/core/signal.dart';
+import 'package:slim_protocol/src/domain/error.dart';
 import 'package:slim_protocol/src/utils.dart';
 import 'package:uuid/uuid.dart';
 import 'package:xxh3/xxh3.dart';
@@ -120,6 +123,11 @@ class IncomingChunk {
     required this.body,
   });
 
+  static bool isChunk(Uint8List bytes) {
+    final bytesData = ByteData.sublistView(bytes);
+    return bytes[0] == 0xFF && bytesData.getUint32(1) == kChunkMagicValue;
+  }
+
   /// Parses raw bytes (such as those directly from datagrams) which may be
   /// interpreted as chunks and performs validation, returning a chunk object
   /// with the fields extracted.
@@ -138,37 +146,40 @@ class IncomingChunk {
     // Attempt to read each of the prologue fields.
 
     // Length
-    if (!DataType.short.hasId(bytesData.getUint8(_pointer++))) throw AssertionError("Invalid chunk.");
+    if (!DataType.short.hasId(bytesData.getUint8(_pointer++))) throw ChunkError(message: "Invalid chunk.");
     int length = bytesData.getUint16(_pointer);
-    if (length > kMaxChunkBodySize) throw AssertionError("Invalid chunk.");
+    if (length > kMaxChunkBodySize) throw ChunkError(message: "Invalid chunk.");
     _pointer += 2;
 
     // Snowflake
-    if (!DataType.fixedBytes.hasId(bytesData.getUint8(_pointer++))) throw AssertionError("Invalid chunk.");
+    if (!DataType.fixedBytes.hasId(bytesData.getUint8(_pointer++))) throw ChunkError(message: "Invalid chunk.");
     Uint8List snowflake = bytes.sublist(_pointer, _pointer + 16);
     _pointer += 16;
 
     // Hash
-    if (!DataType.fixedBytes.hasId(bytesData.getUint8(_pointer++))) throw AssertionError("Invalid chunk.");
+    if (!DataType.fixedBytes.hasId(bytesData.getUint8(_pointer++))) throw ChunkError.rejected(snowflake: snowflake, reason: RejectedSignalReason.invalidChunk);
     int hash = bytesData.getUint64(_pointer);
     _pointer += 8;
 
     // Index
-    if (!DataType.integer.hasId(bytesData.getUint8(_pointer++))) throw AssertionError("Invalid chunk.");
+    if (!DataType.integer.hasId(bytesData.getUint8(_pointer++))) throw ChunkError.rejected(snowflake: snowflake, reason: RejectedSignalReason.invalidChunk);
     int index = bytesData.getUint32(_pointer);
     _pointer += 4;
 
     // Count
-    if (!DataType.integer.hasId(bytesData.getUint8(_pointer++))) throw AssertionError("Invalid chunk.");
+    if (!DataType.integer.hasId(bytesData.getUint8(_pointer++))) throw ChunkError.rejected(snowflake: snowflake, reason: RejectedSignalReason.invalidChunk);
     int count = bytesData.getUint32(_pointer);
     _pointer += 4;
 
     // Body
     Uint8List body = bytes.sublist(_pointer, bytes.lengthInBytes);
-    if (body.lengthInBytes != length) throw AssertionError("Chunk length field mismatch.");
+    // Chunk length field mismatch.
+    if (body.lengthInBytes != length) {
+      throw ChunkError.rejected(snowflake: snowflake, reason: RejectedSignalReason.invalidChunk, message: "Chunk length field mismatch.");
+    }
 
     // Hash body for integrity check.
-    if (xxh3(body) != hash) throw AssertionError("Chunk failed integrity check.");
+    if (xxh3(body) != hash) throw ChunkError.rejected(snowflake: snowflake, reason: RejectedSignalReason.chunkHashMismatch);
 
     return IncomingChunk(
       sender: sender,
@@ -223,7 +234,14 @@ class ChunkCollector {
 
   /// Returns the stream of [IncomingPacket]s from the received re-built
   /// chunks.
-  Stream<IncomingPacket> get stream => _controller.stream;
+  Stream<IncomingPacket>? _stream;
+  Stream<IncomingPacket> get stream {
+    if (_stream != null) {
+      return _stream!;
+    } else {
+      return _stream = _controller.stream.asBroadcastStream();
+    }
+  }
 
   /// Whether the [ChunkCollector] (via the underlying [StreamController])
   /// has been paused.
@@ -256,12 +274,12 @@ class ChunkCollector {
     // Assert that this chunk's sender matches the sender of the group this
     // chunk would belong to.
     if (_chunks[snowflake]!.sender != chunk.sender) {
-      throw AssertionError("Security error. Chunk sender mismatch.");
+      throw ChunkError.rejected(snowflake: chunk.snowflake, reason: RejectedSignalReason.invalidChunk, message: "Security error. Chunk sender mismatch.");
     }
 
     // Assert that this chunk's count matches the length of the chunk group.
     if (_chunks[snowflake]!.count != chunk.count) {
-      throw AssertionError("Chunk integrity error. Chunk count mismatch.");
+      throw ChunkError.rejected(snowflake: chunk.snowflake, reason: RejectedSignalReason.invalidChunk, message: "Chunk integrity error. Chunk count mismatch.");
     }
 
     // Now, add this chunk's body to the chunk's map.
@@ -276,6 +294,7 @@ class ChunkCollector {
       // We can cast the list to a null-checked [Uint8List] because we check
       // that there are no null bytes.
       _emit(
+        chunk.snowflake,
         _chunks[snowflake]!.sender,
         _chunks[snowflake]!.getChunks(),
       );
@@ -287,7 +306,7 @@ class ChunkCollector {
   /// Emits a packet to the stream [_controller].
   /// If the stream controller is paused, the packet is added to the backlog,
   /// until the stream is resumed.
-  void _emit(NetworkEntity sender, List<Uint8List> packetChunks) {
+  void _emit(Uint8List snowflake, NetworkEntity sender, List<Uint8List> packetChunks) {
     // Concatenate the packet chunks.
     final builder = BytesBuilder(copy: false);
     packetChunks.forEach(builder.add);
@@ -302,7 +321,7 @@ class ChunkCollector {
 
     // Assert that the bytes start with the packet's magic header.
     if (!DataType.magic.hasId(bytesData.getUint8(_pointer++)) || bytesData.getUint32(_pointer) != kPacketMagicValue) {
-      throw AssertionError("Invalid packet.");
+      throw PacketError(snowflake: snowflake, reason: RejectedSignalReason.invalidPacket);
     }
     _pointer += 4;
 
@@ -310,7 +329,11 @@ class ChunkCollector {
     if (!DataType.varInt.hasId(bytesData.getUint8(_pointer++))) throw AssertionError("Invalid packet.");
     int length = VarLengthNumbers.readVarInt(() => bytesData.getUint8(_pointer++));
     if (length != (bytesData.lengthInBytes - _pointer)) {
-      throw AssertionError("Packet length mismatch (expected: $length, got ${(bytesData.lengthInBytes - _pointer)}).");
+      throw PacketError(
+        snowflake: snowflake,
+        reason: RejectedSignalReason.invalidPacket,
+        message: "Packet length mismatch (expected: $length, got ${(bytesData.lengthInBytes - _pointer)}).",
+      );
     }
 
     IncomingPacket incomingPacket = Packet.parse(

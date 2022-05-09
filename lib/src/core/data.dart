@@ -1,70 +1,6 @@
 import 'dart:typed_data';
 
-/// Thrown when an invalid protocol data type is used.
-class UnknownTypeError extends Error {
-  /// If the error was converting to a type ID from a type name, then this is
-  /// set to the name of the type. Otherwise, see [typeId].
-  /// In other words, iff [wasFromId] is false, then this is set.
-  final String? typeName;
-
-  /// If the error was converting to a type name from a type ID, then this is
-  /// set to the type ID. Otherwise, see [typeName].
-  /// In other words, iff [wasFromId] is true, then this is set.
-  final int? typeId;
-
-  /// Whether the error was thrown trying to convert from a type ID.
-  /// If this is true then that was the case, otherwise the error was thrown
-  /// trying to convert *to* a type ID instead of from.
-  final bool wasFromId;
-
-  /// Type error based on an invalid type name (type ID could not be found).
-  UnknownTypeError(this.typeName)
-      : wasFromId = false,
-        typeId = null;
-
-  /// Type error based on invalid type ID (type name could not be found).
-  UnknownTypeError.fromId(this.typeId)
-      : wasFromId = true,
-        typeName = null;
-
-  @override
-  String toString() {
-    if (wasFromId) {
-      return "Unknown type ID: ${typeId!}";
-    } else {
-      return "Unknown type: ${typeName!}";
-    }
-  }
-}
-
-/// Thrown when the size of non-fixed-size data type is attempted to be
-/// retrieved.
-class NotSizedTypeError extends Error {
-  final String typeName;
-
-  NotSizedTypeError(this.typeName);
-
-  @override
-  String toString() {
-    return "Attempted to get sized of non-fixed-size type: $typeName";
-  }
-}
-
-/// Thrown when a field has an invalid value for its data type.
-class InvalidValueError extends Error {
-  /// The field's type.
-  final DataType type;
-
-  /// Optionally, the value of the field.
-  final dynamic value;
-
-  InvalidValueError(this.type, [this.value]);
-
-  @override
-  String toString() {
-    return "Invalid value for ${type.name} field" + (value ? ": $value" : ".");
-  }
-}
+import 'package:slim_protocol/src/domain/error.dart';
 
 //
 // Protocol Data Types
@@ -228,7 +164,8 @@ extension DataTypeValue on DataType {
 
     DataType.string: 0x20,
     DataType.bytes: 0x21,
-    DataType.array: 0x22,
+
+    DataType.array: 0xC0,
 
     DataType.fixedBytes: 0xFE,
     DataType.magic: 0xFF,

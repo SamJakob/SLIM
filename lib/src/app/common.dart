@@ -5,8 +5,22 @@ part of 'app.dart';
 /// [_collector].
 abstract class ChunkCollectorSocket {
   final ChunkCollector _collector;
+  final StreamController<IncomingSignal> _signalStreamController;
 
-  ChunkCollectorSocket() : _collector = ChunkCollector();
+  ChunkCollectorSocket()
+      : _collector = ChunkCollector(),
+        _signalStreamController = StreamController() {
+    _collector.stream.listen((IncomingPacket packet) {
+      handleSignal(
+        packet.sender,
+        Signal.acknowledged(snowflake: packet.snowflake),
+      );
+    });
+  }
+
+  Stream<IncomingSignal> get signalStream {
+    return _signalStreamController.stream.asBroadcastStream();
+  }
 
   bool get isOpen {
     return !isCleanedUp;
@@ -18,6 +32,17 @@ abstract class ChunkCollectorSocket {
   bool get isCleanedUp {
     return _collector.isClosed;
   }
+
+  /// Sends the specified [Signal] to the specified [NetworkEntity].
+  void handleSignal(NetworkEntity to, Signal signal);
+
+  /// Can be overridden to handle a [ChunkError] emitted when processing
+  /// incoming datagrams from a [sender].
+  void handleChunkError(NetworkEntity sender, ChunkError error);
+
+  /// Can be overridden to handle a [PacketError] emitted when processing
+  /// incoming datagrams from a [sender].
+  void handlePacketError(NetworkEntity sender, PacketError error);
 
   Future<void> _bindSocketListener(RawDatagramSocket socket) async {
     socket.listen((RawSocketEvent event) async {
@@ -31,13 +56,53 @@ abstract class ChunkCollectorSocket {
             final datagram = socket.receive();
             if (datagram == null) return;
 
-            _collector.addChunk(IncomingChunk.parse(
-              NetworkEntity(
-                host: datagram.address,
-                port: datagram.port,
-              ),
-              datagram.data,
-            ));
+            printBlankDebugLine();
+            logger.d(() => "Received datagram: ${datagram.log}");
+
+            // Process incoming chunks.
+            if (IncomingChunk.isChunk(datagram.data)) {
+              try {
+                final chunk = IncomingChunk.parse(
+                  NetworkEntity(
+                    host: datagram.address,
+                    port: datagram.port,
+                  ),
+                  datagram.data,
+                );
+
+                logger.d(() => "Processed chunk: ${chunk.log}");
+                printBlankDebugLine();
+
+                _collector.addChunk(chunk);
+              } on ChunkError catch (ex) {
+                handleChunkError(NetworkEntity(host: datagram.address, port: datagram.port), ex);
+                logger.e(ex.message, ex);
+              } on PacketError catch (ex) {
+                handlePacketError(NetworkEntity(host: datagram.address, port: datagram.port), ex);
+                logger.e(ex.message, ex);
+              }
+            }
+
+            // Process incoming signals.
+            if (IncomingSignal.isSignal(datagram.data)) {
+              try {
+                final signal = IncomingSignal.parse(
+                  NetworkEntity(
+                    host: datagram.address,
+                    port: datagram.port,
+                  ),
+                  datagram.data,
+                );
+
+                logger.d(() => "Processed signal: ${signal.log}");
+                printBlankDebugLine();
+
+                _signalStreamController.add(signal);
+              } on AssertionError catch (ex) {
+                logger.e(ex.message, ex);
+              }
+            }
+
             return;
           }
         default:

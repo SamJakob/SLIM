@@ -18,6 +18,9 @@ abstract class SLIMServer extends ChunkCollectorSocket {
   /// Sends a packet to the specified [NetworkEntity].
   void send(NetworkEntity to, OutgoingPacket packet);
 
+  /// Sends the specified [Signal] to the specified [NetworkEntity].
+  void sendSignal(NetworkEntity to, Signal signal);
+
   /// Closes the server, thereby disconnecting all connected clients.
   Future<void> close();
 }
@@ -59,6 +62,34 @@ class _SLIMServerImpl extends ChunkCollectorSocket implements SLIMServer {
 
     for (final chunk in chunks) {
       _socket!.send(chunk, to.host, to.port);
+    }
+  }
+
+  @override
+  void sendSignal(NetworkEntity to, Signal signal) {
+    _socket!.send(signal.pack(), to.host, to.port);
+  }
+
+  @override
+  void handleSignal(NetworkEntity to, Signal signal) {
+    sendSignal(to, signal);
+  }
+
+  @override
+  void handleChunkError(NetworkEntity sender, ChunkError error) {
+    // If the error was because the chunk was rejected, and there is a chunk
+    // snowflake, we'll send a chunk rejection signal.
+    if (error.rejected && error.snowflake != null) {
+      sendSignal(sender, Signal.rejected(snowflake: error.snowflake!, reason: error.reason));
+    }
+  }
+
+  @override
+  void handlePacketError(NetworkEntity sender, PacketError error) {
+    // If the error was because the packet was rejected, and there is a packet
+    // snowflake, we'll send a packet rejection signal.
+    if (error.rejected && error.snowflake != null) {
+      sendSignal(sender, Signal.rejected(snowflake: error.snowflake!, reason: error.reason));
     }
   }
 
