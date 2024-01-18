@@ -135,7 +135,7 @@ extension SignedDataType on DataType {
     return signedValue;
   }
 
-  bool get isSigned => value & 0xA0 != 0;
+  bool get isSigned => (value & 0xF0) == 0xA0;
 }
 
 /// Extension that defines an accessor, .value, for all data types to get the
